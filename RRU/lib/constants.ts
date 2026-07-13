@@ -15,7 +15,7 @@
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
 
-export const MODEL_NAME = "gemini-3.1-pro-preview";
+export const MODEL_NAME = "gemini-2.5-flash";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Buyer mode detection (mirrors the old PI/GENERAL split, adapted for RE)
@@ -206,11 +206,11 @@ format) before the numeric scores are written.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 READINESS BANDS (based on final score, after all adjustments):
-  90–100 → Elite Buyer         — Call Immediately  — Agent Priority A+
-  80–89  → Ready Buyer         — High Priority      — Agent Priority A
-  70–79  → Qualified           — Needs Minor Follow-up — Agent Priority B
-  60–69  → Warm Lead           — Needs Financing    — Agent Priority B
-  40–59  → Long-Term Prospect  — Nurture            — Agent Priority C
+  90–100 → Elite Buyer       — Call Immediately  — Agent Priority A+
+  80–89  → Ready Buyer       — High Priority     — Agent Priority A
+  70–79  → Qualified         — Needs Minor Follow-up — Agent Priority B
+  60–69  → Warm Lead         — Needs Financing   — Agent Priority B
+  40–59  → Long-Term Prospect — Nurture           — Agent Priority C
   0–39   → Educational Nurture — Not Yet Actionable — Agent Priority D
 `;
 
@@ -309,19 +309,6 @@ export function readinessBand(score: number): {
 
 /**
  * Builds the systemInstruction for /api/evaluate.
- *
- * Two behaviors beyond the base phase rule are layered in on every call:
- *
- * 1. CONSISTENCY CHECKING — the model is required to diff the current
- *    answer against `allAnswers` and flag (not silently ignore) any
- *    contradiction before deciding whether to advance the phase.
- *
- * 2. DYNAMIC FOLLOW-UP — if the current answer is "high-value" (i.e. it
- *    would meaningfully move the readiness score, such as a preapproval
- *    disclosure, a stated cash-purchase, or a specific investment thesis),
- *    the model must ask ONE targeted follow-up question specific to that
- *    disclosure before advancing, rather than moving on with a generic
- *    acknowledgment.
  */
 export function buildEvaluateSystemInstruction(phaseNum: number, mode: BuyerMode): string {
   const baseRule = PHASE_RULES[phaseNum];
@@ -472,10 +459,6 @@ RESPONSE FORMAT — return ONLY a valid JSON object. No markdown. No preamble.
     "motivationIndex": "Very High" | "High" | "Moderate" | "Low" | "Shopping Only",
     "purchaseTimeline": "Immediate" | "30 Days" | "60 Days" | "90 Days" | "6 Months" | "1 Year+",
     "propertyMatch": string[],
-    "estimatedBudget": string,
-    "estimatedDownPayment": string,
-    "estimatedMonthlyPayment": string,
-    "loanRange": string,
     "recommendedNextStep": "Schedule Showing" | "Refer to Mortgage Broker" | "Request Documentation" | "Needs Credit Counseling" | "Follow Up in 90 Days" | "Not Qualified",
     "riskFlags": string[]
   },
