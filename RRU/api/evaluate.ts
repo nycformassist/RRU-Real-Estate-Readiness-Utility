@@ -29,7 +29,14 @@ async function generateWithRetry(client: any, prompt: string, systemInstruction:
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
-import { MODEL_NAME, buildEvaluateSystemInstruction, detectBuyerMode, type BuyerMode } from "../lib/constants.js";
+import {
+  MODEL_NAME,
+  buildEvaluateSystemInstruction,
+  detectBuyerMode,
+  isSupportedLanguageCode,
+  DEFAULT_LANGUAGE_CODE,
+  type BuyerMode,
+} from "../lib/constants.js";
 
 // ── SDK client — instantiated once at module scope ─────────────────────────
 // Vercel reuses warm containers between invocations, so constructing the
@@ -55,6 +62,13 @@ interface EvaluateRequestBody {
   question: string;
   answer: string;
   allAnswers?: Record<string, unknown>;
+  /**
+   * BCP-47 language code. Send this once the client has picked a language
+   * (or once a prior /api/evaluate response returned "detectedLanguage")
+   * so every subsequent turn stays pinned to that language instead of
+   * re-detecting from scratch each time.
+   */
+  language?: string;
 }
 
 interface EvaluateResult {
@@ -64,6 +78,9 @@ interface EvaluateResult {
   advancePhase: boolean;
   inconsistencyDetected: boolean;
   followUpTriggered: boolean;
+  /** BCP-47 code — persist this and send it back as `language` on the next call. */
+  detectedLanguage: string;
+  languageSwitchDetected: boolean;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -81,7 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { phase, question, answer, allAnswers } = (req.body || {}) as EvaluateRequestBody;
+  const { phase, question, answer, allAnswers, language } = (req.body || {}) as EvaluateRequestBody;
 
   if (!phase || !question || answer === undefined || answer === null) {
     res.status(400).json({ error: "Missing required fields: phase, question, answer" });
@@ -97,7 +114,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const goalAnswer = String((allAnswers as Record<string, unknown> | undefined)?.buyingGoal || "");
   const mode: BuyerMode = detectBuyerMode(goalAnswer);
 
-  const systemInstruction = buildEvaluateSystemInstruction(phaseNum, mode);
+  // Prefer an explicit `language` on this request; fall back to a language
+  // already persisted on allAnswers from a prior turn; otherwise leave
+  // undefined so the model auto-detects from the client's raw answer.
+  const persistedLanguage = String((allAnswers as Record<string, unknown> | undefined)?.preferredLanguage || "");
+  const pinnedLanguage = isSupportedLanguageCode(language)
+    ? language
+    : isSupportedLanguageCode(persistedLanguage)
+      ? persistedLanguage
+      : undefined;
+
+  const systemInstruction = buildEvaluateSystemInstruction(phaseNum, mode, pinnedLanguage);
 
   const currentDate = new Date().toLocaleDateString("en-US", {
     year: "numeric",
@@ -147,6 +174,10 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
         (parsed.extractedData as string).trim().length > 0,
       inconsistencyDetected: Boolean(parsed.inconsistencyDetected),
       followUpTriggered: Boolean(parsed.followUpTriggered),
+      detectedLanguage: isSupportedLanguageCode(parsed.detectedLanguage as string)
+        ? (parsed.detectedLanguage as string)
+        : (pinnedLanguage || DEFAULT_LANGUAGE_CODE),
+      languageSwitchDetected: Boolean(parsed.languageSwitchDetected),
     };
 
     res.status(200).json(result);
