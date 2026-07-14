@@ -17,7 +17,8 @@ async function generateWithRetry(client: any, prompt: string, systemInstruction:
       throw error; // If it's not a 503/429, or we're out of retries, throw the error
     }
   }
-}/**
+}
+/**
  * api/evaluate.ts — POST /api/evaluate
  *
  * Per-phase gatekeeping for the RRU Buyer Interview (Gemini-driven).
