@@ -1,23 +1,3 @@
-// Add this helper function at the top of your file
-async function generateWithRetry(client: any, prompt: string, systemInstruction: string, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await client.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt,
-        config: { systemInstruction, responseMimeType: "application/json" },
-      });
-    } catch (error: any) {
-      if ((error.status === 503 || error.status === 429) && i < retries - 1) {
-        console.warn(`[API] Google busy. Retrying in ${Math.pow(2, i)} seconds...`);
-        // Exponential backoff: waits 1s, then 2s, then 4s...
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-        continue;
-      }
-      throw error; // If it's not a 503/429, or we're out of retries, throw the error
-    }
-  }
-}
 /**
  * api/generate-report.ts — POST /api/generate-report
  *
@@ -28,9 +8,7 @@ async function generateWithRetry(client: any, prompt: string, systemInstruction:
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { GoogleGenAI } from "@google/genai";
 import {
-  MODEL_NAME,
   CATEGORY_WEIGHTS,
   ScoreCategory,
   SCORE_CATEGORY_KEYS,
@@ -44,18 +22,7 @@ import {
   isSupportedLanguageCode,
   type BuyerMode,
 } from "../lib/constants.js";
-
-// ── SDK client — module-scope singleton (see api/evaluate.ts for rationale) ─
-let ai: GoogleGenAI | null = null;
-function getClient(): GoogleGenAI {
-  if (!ai) {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not set");
-    }
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  }
-  return ai;
-}
+import { generateJSON, UpstreamUnavailableError } from "../lib/gemini-client.js";
 
 const CATEGORY_SCORE_FIELD: Record<ScoreCategory, string> = {
   financialReadiness: "scoreFinancialReadiness",
