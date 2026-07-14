@@ -14,8 +14,20 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
-
+//
+// Primary is a GA (generally available) model, not a -preview build.
+// Preview models (e.g. gemini-3.1-pro-preview) share a much smaller,
+// unguaranteed capacity pool and are the most common source of transient
+// 503 "high demand" errors — that's what was happening here. Stable model
+// short-names get Google's production capacity and SLA.
+//
+// FALLBACK_MODEL_NAME is a different model family entirely (not just a
+// different size of the same family), so a capacity incident affecting
+// one Gemini generation doesn't take down both the primary and the
+// fallback at once. See lib/gemini-client.ts for the retry/fallback logic
+// that actually uses these.
 export const MODEL_NAME = "gemini-3.5-flash";
+export const FALLBACK_MODEL_NAME = "gemini-2.5-flash";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Language access — NYC Local Law 30 (2017) designated citywide languages
