@@ -15,7 +15,7 @@
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
 
-export const MODEL_NAME = "gemini-2.5-flash";
+export const MODEL_NAME = "gemini-3.5-flash";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Buyer mode detection (mirrors the old PI/GENERAL split, adapted for RE)
