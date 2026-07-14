@@ -40,6 +40,8 @@ import {
   motivationIndexLabel,
   readinessBand,
   RISK_FLAG_TYPES,
+  languageByCode,
+  isSupportedLanguageCode,
   type BuyerMode,
 } from "../lib/constants.js";
 
@@ -230,6 +232,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   sd.financingReadiness = financingReadinessLabel(categoryScores.financingStatus);
   sd.motivationIndex = motivationIndexLabel(categoryScores.motivation);
   sd.buyerMode = mode;
+
+  // clientLanguage: trust the persisted code from the intake flow over
+  // whatever the model guessed, since it's the language actually recorded
+  // turn-by-turn by /api/evaluate rather than inferred after the fact.
+  const persistedLanguageCode = String(answers.preferredLanguage || "");
+  sd.clientLanguage = isSupportedLanguageCode(persistedLanguageCode)
+    ? languageByCode(persistedLanguageCode).label
+    : (typeof sd.clientLanguage === "string" && sd.clientLanguage.trim().length > 0 ? sd.clientLanguage : "English");
 
   // ── Risk flags — recomputed deterministically from raw answers
   const computedFlags = computeRiskFlags(answers, categoryScores);
