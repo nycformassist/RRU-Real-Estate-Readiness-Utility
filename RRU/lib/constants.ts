@@ -18,6 +18,90 @@
 export const MODEL_NAME = "gemini-3.5-flash";
 
 // ─────────────────────────────────────────────────────────────────────────
+// Language access — NYC Local Law 30 (2017) designated citywide languages
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Local Law 30 requires covered NYC agencies to translate their most
+// commonly distributed materials into the city's 10 designated citywide
+// languages, determined from US Census + NYC DOE data on limited-English-
+// proficient (LEP) New Yorkers: Spanish, Chinese, Russian, Bengali,
+// Haitian Creole, Korean, Arabic, Urdu, French, and Polish. RRU treats
+// these 10 (plus English) as the supported intake languages. This is a
+// floor, not a ceiling — NYC agencies also provide telephonic
+// interpretation in ~100 languages, so treat this list as "guaranteed
+// first-class support," not "the only languages we'll ever see."
+
+export interface SupportedLanguage {
+  /** BCP-47 code used in requests, storage, and the frontend toggle. */
+  code: string;
+  label: string;
+  nativeLabel: string;
+  /** Right-to-left script — the frontend should set dir="rtl" for these. */
+  rtl?: boolean;
+}
+
+export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
+  { code: "en", label: "English", nativeLabel: "English" },
+  { code: "es", label: "Spanish", nativeLabel: "Español" },
+  { code: "zh", label: "Chinese", nativeLabel: "中文" },
+  { code: "ru", label: "Russian", nativeLabel: "Русский" },
+  { code: "bn", label: "Bengali", nativeLabel: "বাংলা" },
+  { code: "ht", label: "Haitian Creole", nativeLabel: "Kreyòl Ayisyen" },
+  { code: "ko", label: "Korean", nativeLabel: "한국어" },
+  { code: "ar", label: "Arabic", nativeLabel: "العربية", rtl: true },
+  { code: "ur", label: "Urdu", nativeLabel: "اردو", rtl: true },
+  { code: "fr", label: "French", nativeLabel: "Français" },
+  { code: "pl", label: "Polish", nativeLabel: "Polski" },
+];
+
+export const DEFAULT_LANGUAGE_CODE = "en";
+
+export function isSupportedLanguageCode(code: string | undefined | null): code is string {
+  return !!code && SUPPORTED_LANGUAGES.some((l) => l.code === code);
+}
+
+export function languageByCode(code: string | undefined | null): SupportedLanguage {
+  return SUPPORTED_LANGUAGES.find((l) => l.code === code) || SUPPORTED_LANGUAGES[0];
+}
+
+/**
+ * Builds the LANGUAGE block spliced into the evaluate system instruction.
+ *
+ * Two modes:
+ *  - explicitCode provided (client picked a language, or a prior turn
+ *    already detected one): pin the response language and skip detection.
+ *  - explicitCode omitted: ask the model to detect the client's language
+ *    from their answer and report it back in "detectedLanguage" so the
+ *    frontend can persist it and pass it as the explicit code on the next
+ *    turn. This keeps language detection out of the handler code entirely
+ *    — no NLP dependency, no heuristic script-matching to maintain.
+ */
+export function buildLanguageDirective(explicitCode?: string | null): string {
+  if (explicitCode && isSupportedLanguageCode(explicitCode)) {
+    const lang = languageByCode(explicitCode);
+    if (lang.code === "en") {
+      return `\nLANGUAGE: Respond in English. Set "detectedLanguage" to "en".`;
+    }
+    return `
+─────────────────────────────────────────
+LANGUAGE
+─────────────────────────────────────────
+The client's language is ${lang.label} (${lang.nativeLabel}). Write "agentResponse" entirely in ${lang.label}, using natural, warm, native-level phrasing — not a literal translation of the English phase script. Numbers, dollar amounts, and proper nouns (names, neighborhoods, lender names) stay as given.
+Do NOT translate JSON keys or any fixed enum value (e.g. "isValid", "advancePhase", language codes) — those stay in English exactly as specified so downstream code can parse them.
+If the client's current answer is written in a different language than ${lang.label}, mirror the language the client just used for this turn's agentResponse, set "detectedLanguage" to that language's code instead, and set "languageSwitchDetected" to true.
+Otherwise set "detectedLanguage" to "${lang.code}" and "languageSwitchDetected" to false.`;
+  }
+
+  return `
+─────────────────────────────────────────
+LANGUAGE (auto-detect — no language has been set yet)
+─────────────────────────────────────────
+Detect the language of the client's current answer. Supported first-class languages and their codes: ${SUPPORTED_LANGUAGES.map((l) => `${l.label}=${l.code}`).join(", ")}. If the answer is in a language outside this list, still detect it and use its correct BCP-47 code (interpretation support is not limited to this list — this list only marks which languages get guaranteed native-quality phrasing).
+Write "agentResponse" in the SAME language the client just used. Set "detectedLanguage" to that language's code and "languageSwitchDetected" to false (there is nothing to switch from on the first turn).
+If the answer is too short to confidently detect a language (e.g. just a phone number), default to English and set "detectedLanguage" to "en".`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Buyer mode detection (mirrors the old PI/GENERAL split, adapted for RE)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -206,11 +290,11 @@ format) before the numeric scores are written.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 READINESS BANDS (based on final score, after all adjustments):
-  90–100 → Elite Buyer       — Call Immediately  — Agent Priority A+
-  80–89  → Ready Buyer       — High Priority     — Agent Priority A
-  70–79  → Qualified         — Needs Minor Follow-up — Agent Priority B
-  60–69  → Warm Lead         — Needs Financing   — Agent Priority B
-  40–59  → Long-Term Prospect — Nurture           — Agent Priority C
+  90–100 → Elite Buyer         — Call Immediately  — Agent Priority A+
+  80–89  → Ready Buyer         — High Priority      — Agent Priority A
+  70–79  → Qualified           — Needs Minor Follow-up — Agent Priority B
+  60–69  → Warm Lead           — Needs Financing    — Agent Priority B
+  40–59  → Long-Term Prospect  — Nurture            — Agent Priority C
   0–39   → Educational Nurture — Not Yet Actionable — Agent Priority D
 `;
 
@@ -309,15 +393,30 @@ export function readinessBand(score: number): {
 
 /**
  * Builds the systemInstruction for /api/evaluate.
+ *
+ * Two behaviors beyond the base phase rule are layered in on every call:
+ *
+ * 1. CONSISTENCY CHECKING — the model is required to diff the current
+ *    answer against `allAnswers` and flag (not silently ignore) any
+ *    contradiction before deciding whether to advance the phase.
+ *
+ * 2. DYNAMIC FOLLOW-UP — if the current answer is "high-value" (i.e. it
+ *    would meaningfully move the readiness score, such as a preapproval
+ *    disclosure, a stated cash-purchase, or a specific investment thesis),
+ *    the model must ask ONE targeted follow-up question specific to that
+ *    disclosure before advancing, rather than moving on with a generic
+ *    acknowledgment.
  */
-export function buildEvaluateSystemInstruction(phaseNum: number, mode: BuyerMode): string {
+export function buildEvaluateSystemInstruction(phaseNum: number, mode: BuyerMode, languageCode?: string | null): string {
   const baseRule = PHASE_RULES[phaseNum];
   const addendum = MODE_PHASE_ADDENDA[mode]?.[phaseNum] || "";
   const fullPhaseRule = addendum ? `${baseRule}\n${addendum}` : baseRule;
+  const languageDirective = buildLanguageDirective(languageCode);
 
-  return `You are the RRU Buyer Interview Assistant. You are warm, patient, and professional — never a gatekeeper. Your job is to gather real estate buyer-readiness information conversationally, using the phase rules below, while giving the client a positive, low-pressure experience.
+  return `You are the RRU Buyer Interview Assistant. You are warm, patient, and professional — never a gatekeeper. Your job is to gather real estate buyer-readiness information conversationally, using the phase rules below, while giving the client a positive, low-pressure experience in whichever of NYC's major languages they use.
 
 BUYER MODE: ${mode}
+${languageDirective}
 
 ─────────────────────────────────────────
 IDENTITY AND CONDUCT
@@ -381,7 +480,9 @@ RESPONSE FORMAT — return ONLY a valid JSON object, no markdown, no preamble
   "agentResponse": string,
   "advancePhase": boolean,
   "inconsistencyDetected": boolean,
-  "followUpTriggered": boolean
+  "followUpTriggered": boolean,
+  "detectedLanguage": string,
+  "languageSwitchDetected": boolean
 }
 
 VALID RESPONSE BEHAVIOR:
@@ -428,6 +529,7 @@ RESPONSE FORMAT — return ONLY a valid JSON object. No markdown. No preamble.
     "buyingGoal": string,
     "buyerMode": "${mode}",
     "buyerModeLabel": "${modeLabel}",
+    "clientLanguage": string,
     "location": string,
     "budget": string,
     "mortgageStatus": string,
@@ -459,6 +561,10 @@ RESPONSE FORMAT — return ONLY a valid JSON object. No markdown. No preamble.
     "motivationIndex": "Very High" | "High" | "Moderate" | "Low" | "Shopping Only",
     "purchaseTimeline": "Immediate" | "30 Days" | "60 Days" | "90 Days" | "6 Months" | "1 Year+",
     "propertyMatch": string[],
+    "estimatedBudget": string,
+    "estimatedDownPayment": string,
+    "estimatedMonthlyPayment": string,
+    "loanRange": string,
     "recommendedNextStep": "Schedule Showing" | "Refer to Mortgage Broker" | "Request Documentation" | "Needs Credit Counseling" | "Follow Up in 90 Days" | "Not Qualified",
     "riskFlags": string[]
   },
@@ -469,5 +575,12 @@ RESPONSE FORMAT — return ONLY a valid JSON object. No markdown. No preamble.
 the client), written in the style: "John appears highly motivated to
 purchase within 60 days. He has stable employment, an estimated household
 income of $180,000, and expects to finance with conventional lending..."
-Ground every stated fact in the intake data — do not invent figures.`;
+Ground every stated fact in the intake data — do not invent figures.
+
+LANGUAGE POLICY FOR THIS REPORT: this report is internal, for the agent,
+and stays in English regardless of what language the client used during
+intake — set "clientLanguage" to the client's language name (e.g.
+"Spanish") so the agent knows to follow up in that language or request an
+interpreter, per NYC Local Law 30 language-access practice, but do not
+translate the report itself.`;
 }
