@@ -18,19 +18,24 @@ import {
   type BuyerMode,
 } from "../lib/constants.js";
 
-// ── Robust API Retry Helper ────────────────────────────────────────────────
-// Silently catches 503 (busy/high demand) and 429 (rate limits) and retries 
-// with exponential backoff so your users never see a 500 error screen.
-async function generateWithRetry(client: GoogleGenAI, prompt: string, systemInstruction: string, retries = 3) {
-  for (let i = 0; i < retries; i++) {
+// ── Robust API Retry & Fallback Helper ─────────────────────────────────────
+// 1. Catches 503 (busy/high demand) and 429 (rate limits) and retries.
+// 2. Uses tightly calibrated exponential backoff to stay under Vercel's 10s Hobby limit.
+// 3. If the primary model is completely down, it seamlessly falls back to gemini-3.1-flash-lite.
+async function generateWithRetry(client: GoogleGenAI, prompt: string, systemInstruction: string) {
+  const primaryModel = MODEL_NAME;
+  const fallbackModel = "gemini-3.1-flash-lite"; // High-availability budget model
+  const attempts = [500, 1000, 2000]; // Delays between retries in ms
+
+  // Phase 1: Try Primary Model with Retries
+  for (let i = 0; i <= attempts.length; i++) {
     try {
       return await client.models.generateContent({
-        model: MODEL_NAME,
+        model: primaryModel,
         contents: prompt,
         config: { systemInstruction, responseMimeType: "application/json" },
       });
     } catch (error: any) {
-      // Pull status/code out of nested Google error payloads if present
       const statusCode = error.status || error.code || error.statusCode || error.error?.code;
       const errorMessage = error.message ? String(error.message) : "";
       
@@ -41,14 +46,29 @@ async function generateWithRetry(client: GoogleGenAI, prompt: string, systemInst
         errorMessage.includes("UNAVAILABLE") ||
         errorMessage.includes("429");
 
-      if (isTransientError && i < retries - 1) {
-        const waitTime = Math.pow(2, i) * 1000; // 1s, then 2s, then 4s...
-        console.warn(`[API] Google busy (503/429). Retrying in ${waitTime / 1000}s... (Attempt ${i + 1}/${retries})`);
+      if (isTransientError && i < attempts.length) {
+        const waitTime = attempts[i];
+        console.warn(`[API] Primary model (${primaryModel}) busy (503/429). Retrying in ${waitTime / 1000}s... (Attempt ${i + 1}/${attempts.length + 1})`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
-      throw error; // Throw standard validation or fatal errors
+      
+      // If retries are exhausted or it's not a transient error, break out to try the fallback model
+      console.warn(`[API] Primary model (${primaryModel}) failed or exhausted. Trying fallback model (${fallbackModel})...`);
+      break; 
     }
+  }
+
+  // Phase 2: Fallback Model Attempt
+  try {
+    return await client.models.generateContent({
+      model: fallbackModel,
+      contents: prompt,
+      config: { systemInstruction, responseMimeType: "application/json" },
+    });
+  } catch (fallbackError: any) {
+    console.error(`[API] Fallback model (${fallbackModel}) also failed. Passing error up.`);
+    throw fallbackError; // Throw the final error if even fallback is failing
   }
 }
 
@@ -147,7 +167,7 @@ Previously Collected: ${JSON.stringify(allAnswers || {})}
 Evaluate against the Phase ${phaseNum} rule, run the consistency check against Previously Collected, and run the dynamic follow-up check. Return your JSON response.`;
 
   try {
-    // Call our robust retry wrapper instead of the raw client model directly
+    // Call our robust retry & fallback wrapper instead of the raw client model directly
     const response = await generateWithRetry(client, prompt, systemInstruction);
 
     // Safeguard against undefined responses
@@ -190,6 +210,18 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[api/evaluate] Evaluation error:", message);
-    res.status(500).json({ error: "Failed to evaluate input", detail: message });
+    
+    // Dynamically forward the correct transient status code to prevent Vercel 500 error logs
+    let statusCode = 500;
+    const errorObj = err as any;
+    const errStatus = errorObj?.status || errorObj?.code || errorObj?.statusCode || errorObj?.error?.code;
+
+    if (errStatus === 503 || message.includes("503") || message.includes("UNAVAILABLE")) {
+      statusCode = 503;
+    } else if (errStatus === 429 || message.includes("429")) {
+      statusCode = 429;
+    }
+
+    res.status(statusCode).json({ error: "Failed to evaluate input", detail: message });
   }
 }
