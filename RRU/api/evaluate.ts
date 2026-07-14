@@ -1,23 +1,3 @@
-// Add this helper function at the top of your file
-async function generateWithRetry(client: any, prompt: string, systemInstruction: string, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await client.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt,
-        config: { systemInstruction, responseMimeType: "application/json" },
-      });
-    } catch (error: any) {
-      if ((error.status === 503 || error.status === 429) && i < retries - 1) {
-        console.warn(`[API] Google busy. Retrying in ${Math.pow(2, i)} seconds...`);
-        // Exponential backoff: waits 1s, then 2s, then 4s...
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-        continue;
-      }
-      throw error; // If it's not a 503/429, or we're out of retries, throw the error
-    }
-  }
-}
 /**
  * api/evaluate.ts — POST /api/evaluate
  *
@@ -38,14 +18,41 @@ import {
   type BuyerMode,
 } from "../lib/constants.js";
 
+// ── Robust API Retry Helper ────────────────────────────────────────────────
+// Silently catches 503 (busy/high demand) and 429 (rate limits) and retries 
+// with exponential backoff so your users never see a 500 error screen.
+async function generateWithRetry(client: GoogleGenAI, prompt: string, systemInstruction: string, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await client.models.generateContent({
+        model: MODEL_NAME,
+        contents: prompt,
+        config: { systemInstruction, responseMimeType: "application/json" },
+      });
+    } catch (error: any) {
+      // Pull status/code out of nested Google error payloads if present
+      const statusCode = error.status || error.code || error.statusCode || error.error?.code;
+      const errorMessage = error.message ? String(error.message) : "";
+      
+      const isTransientError =
+        statusCode === 503 ||
+        statusCode === 429 ||
+        errorMessage.includes("503") ||
+        errorMessage.includes("UNAVAILABLE") ||
+        errorMessage.includes("429");
+
+      if (isTransientError && i < retries - 1) {
+        const waitTime = Math.pow(2, i) * 1000; // 1s, then 2s, then 4s...
+        console.warn(`[API] Google busy (503/429). Retrying in ${waitTime / 1000}s... (Attempt ${i + 1}/${retries})`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+      throw error; // Throw standard validation or fatal errors
+    }
+  }
+}
+
 // ── SDK client — instantiated once at module scope ─────────────────────────
-// Vercel reuses warm containers between invocations, so constructing the
-// client here (instead of inside the handler) avoids re-creating it on
-// every request and shaves latency off cold starts that DO occur.
-// The API key is only read here, not validated — validation happens inside
-// the handler so a missing key returns a proper HTTP error instead of
-// crashing the function at import time (which Vercel would surface as an
-// opaque 500 with no body).
 let ai: GoogleGenAI | null = null;
 function getClient(): GoogleGenAI {
   if (!ai) {
@@ -114,9 +121,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const goalAnswer = String((allAnswers as Record<string, unknown> | undefined)?.buyingGoal || "");
   const mode: BuyerMode = detectBuyerMode(goalAnswer);
 
-  // Prefer an explicit `language` on this request; fall back to a language
-  // already persisted on allAnswers from a prior turn; otherwise leave
-  // undefined so the model auto-detects from the client's raw answer.
   const persistedLanguage = String((allAnswers as Record<string, unknown> | undefined)?.preferredLanguage || "");
   const pinnedLanguage = isSupportedLanguageCode(language)
     ? language
@@ -143,11 +147,13 @@ Previously Collected: ${JSON.stringify(allAnswers || {})}
 Evaluate against the Phase ${phaseNum} rule, run the consistency check against Previously Collected, and run the dynamic follow-up check. Return your JSON response.`;
 
   try {
-    const response = await client.models.generateContent({
-      model: MODEL_NAME,
-      contents: prompt,
-      config: { systemInstruction, responseMimeType: "application/json" },
-    });
+    // Call our robust retry wrapper instead of the raw client model directly
+    const response = await generateWithRetry(client, prompt, systemInstruction);
+
+    // Safeguard against undefined responses
+    if (!response) {
+      throw new Error("No response returned from Gemini");
+    }
 
     const responseText = (response.text || "{}").trim();
     let parsed: Record<string, unknown>;
