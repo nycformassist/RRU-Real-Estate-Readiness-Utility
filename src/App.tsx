@@ -205,7 +205,6 @@ async function fetchWithEvaluateRetry(url: string, options: RequestInit, retries
   try {
     const response = await fetch(url, options);
 
-    // If status is 503, attempt a quiet silent retry once
     if (response.status === 503 && retries > 0) {
       console.warn(`[App] Received 503 from API. Auto-retrying in ${delay / 1000}s...`);
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -214,7 +213,6 @@ async function fetchWithEvaluateRetry(url: string, options: RequestInit, retries
 
     return response;
   } catch (error) {
-    // If a network connection error happens and retries remain
     if (retries > 0) {
       await new Promise((resolve) => setTimeout(resolve, delay));
       return fetchWithEvaluateRetry(url, options, retries - 1, delay);
@@ -278,6 +276,7 @@ export default function App() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
+      // Add the AI's intelligent response (handles both acknowledgement and next question)
       addMessage(
         "model",
         data.agentResponse || "Your response does not meet the minimum requirements for this phase. Please provide the specific information requested."
@@ -295,8 +294,7 @@ export default function App() {
 
         if (nextPhase <= INTAKE_QUESTIONS.length) {
           setCurrentPhase(nextPhase);
-          const next = INTAKE_QUESTIONS[nextPhase - 1];
-          setTimeout(() => addMessage("model", next.question), 350);
+          // Redundant static question timeout removed to eliminate duplicate questioning.
         } else {
           setCurrentPhase(INTAKE_QUESTIONS.length + 1);
           setTimeout(() => {
