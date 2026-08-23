@@ -4,7 +4,8 @@
  * Generates the Buyer Readiness Report (Gemini-driven), then validates and
  * re-derives every scored/labeled field server-side so the numbers in the
  * response can never drift from the model's own stated evidence. The model
- * proposes; this handler disposes.
+ * proposes; this handler disposes. Model-calling/retry logic lives in
+ * lib/gemini-client.ts.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -73,7 +74,7 @@ function computeRiskFlags(answers: Record<string, unknown>, categoryScores: Reco
     flags.push("CREDIT UNKNOWN: No credit information has been shared or confirmed.");
   }
   const financialText = String(answers.budget || "") + " " + String(answers.categoryEvidence ?? "");
-  if (financialText.toLowerCase().includes("between jobs") || financialText.toLowerCase().includes("self-employed") && !financialText.toLowerCase().includes("confirmed")) {
+  if (financialText.toLowerCase().includes("between jobs") || (financialText.toLowerCase().includes("self-employed") && !financialText.toLowerCase().includes("confirmed"))) {
     flags.push("EMPLOYMENT INSTABILITY: Employment or income stability has not been confirmed.");
   }
 
@@ -108,10 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  let client: GoogleGenAI;
-  try {
-    client = getClient();
-  } catch {
+  if (!process.env.GEMINI_API_KEY) {
     console.error("[api/generate-report] FATAL: GEMINI_API_KEY is not set");
     res.status(500).json({ error: "Server misconfiguration: missing GEMINI_API_KEY" });
     return;
@@ -132,13 +130,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let parsed: Record<string, unknown>;
   try {
-    const response = await client.models.generateContent({
-      model: MODEL_NAME,
-      contents: prompt,
-      config: { systemInstruction, responseMimeType: "application/json" },
-    });
-
-    const responseText = (response.text || "{}").trim();
+    const responseText = await generateJSON(systemInstruction, prompt);
     try {
       parsed = JSON.parse(responseText);
     } catch {
@@ -147,6 +139,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
   } catch (err: unknown) {
+    if (err instanceof UpstreamUnavailableError) {
+      console.error("[api/generate-report] Upstream unavailable:", err.message);
+      res.status(503).json({
+        error: "RRU is temporarily busy — please try again in a few seconds.",
+        retryable: true,
+      });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     console.error("[api/generate-report] Report generation error:", message);
     res.status(500).json({ error: "Failed to generate report", detail: message });

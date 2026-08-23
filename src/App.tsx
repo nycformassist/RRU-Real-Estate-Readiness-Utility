@@ -97,7 +97,7 @@ const INTAKE_QUESTIONS = [
 
 // ── All required fields for submission guard ─────────────────────────────────
 const ALL_FIELDS: { key: string; label: string; critical: boolean }[] = [
-  { key: "fullName",       label: "Full Name",             critical: true  },
+  { key: "fullName",      label: "Full Name",            critical: true  },
   { key: "contactInfo",    label: "Contact Information",   critical: true  },
   { key: "buyingGoal",     label: "Buying Goal",           critical: true  },
   { key: "location",       label: "Target Location",       critical: false },
@@ -154,7 +154,7 @@ function buildStructuredDataFallback(answers: Record<string, string>): Structure
     score:              0,
     priority:           "NURTURE",
     recommendation:     "NURTURE",
-    redFlags:           ["SYSTEM: Manual agent review and scoring required"],
+    redFlags:          ["SYSTEM: Manual agent review and scoring required"],
     submittedAt:        new Date().toISOString(),
   };
 }
@@ -200,6 +200,29 @@ function buildFallbackReport(answers: Record<string, string>): string {
   ].join("\n");
 }
 
+// ── Helper: Fetch with Automatic 503 Retry ────────────────────────────────────
+async function fetchWithEvaluateRetry(url: string, options: RequestInit, retries = 1, delay = 2000): Promise<Response> {
+  try {
+    const response = await fetch(url, options);
+
+    // If status is 503, attempt a quiet silent retry once
+    if (response.status === 503 && retries > 0) {
+      console.warn(`[App] Received 503 from API. Auto-retrying in ${delay / 1000}s...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return fetchWithEvaluateRetry(url, options, retries - 1, delay);
+    }
+
+    return response;
+  } catch (error) {
+    // If a network connection error happens and retries remain
+    if (retries > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return fetchWithEvaluateRetry(url, options, retries - 1, delay);
+    }
+    throw error;
+  }
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -210,8 +233,8 @@ export default function App() {
       text: INTAKE_QUESTIONS[0].question,
     },
   ]);
-  const [isLoading,    setIsLoading]   = useState(false);
-  const [isFinished,   setIsFinished]  = useState(false);
+  const [isLoading,     setIsLoading]   = useState(false);
+  const [isFinished,    setIsFinished]  = useState(false);
   const [currentPhase, setCurrentPhase] = useState(1);
   const [answers,      setAnswers]     = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
@@ -239,7 +262,7 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/evaluate", {
+      const response = await fetchWithEvaluateRetry("/api/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -331,7 +354,7 @@ export default function App() {
         const generated = await reportRes.json();
 
         structuredData  = { ...generated.structuredData, submittedAt: new Date().toISOString() };
-        attorneyReport  = generated.attorneyReport; // Keeping variable name consistent for your backend
+        attorneyReport  = generated.attorneyReport;
         setFinalScore(structuredData);
       } catch (reportErr) {
         structuredData = buildStructuredDataFallback(answers);

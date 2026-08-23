@@ -3,8 +3,9 @@
  *
  * Per-phase gatekeeping for the RRU Buyer Interview (Gemini-driven).
  * Kept intentionally thin: all prompt text, phase rules, and mode logic
- * live in lib/constants.ts. This file only validates the request shape,
- * calls the model, and normalizes the response.
+ * live in lib/constants.ts; all model-calling/retry logic lives in
+ * lib/gemini-client.ts. This file only validates the request shape, calls
+ * generateJSON(), and normalizes the response.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -46,6 +47,12 @@ interface EvaluateResult {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    console.error("[api/evaluate] FATAL: GEMINI_API_KEY is not set");
+    res.status(500).json({ error: "Server misconfiguration: missing GEMINI_API_KEY" });
     return;
   }
 
