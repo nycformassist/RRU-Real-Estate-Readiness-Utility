@@ -1,56 +1,51 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-import sgMail from "@sendgrid/mail";
+import { Resend } from 'resend';
 
-// Ensure the API Key is set
-const sendgridApiKey = process.env.SENDGRID_API_KEY;
-if (sendgridApiKey) {
-  sgMail.setApiKey(sendgridApiKey);
-}
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // 1. Method Enforcement
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  // 2. Validate environment
-  if (!sendgridApiKey) {
-    console.error("[intake] SENDGRID_API_KEY is missing");
-    return res.status(500).json({ error: "Server configuration error" });
-  }
-
-  // 3. Extract and Validate body
-  const { structuredData, attorneyReport } = req.body;
-  if (!structuredData || !attorneyReport) {
-    return res.status(400).json({ error: "Missing required payload fields" });
-  }
-
+export async function POST(req: Request) {
   try {
-    const msg = {
-      to: "your-broker-email@example.com", // Ensure this matches your SendGrid verified sender
-      from: "noreply@yourdomain.com",       // Must be a verified sender in SendGrid
-      subject: `New RRU™ Buyer Lead: ${structuredData.fullName}`,
-      text: `A new buyer has completed the RRU™ intake process.\n\nPriority: ${structuredData.priority}\n\nReport:\n${attorneyReport}`,
+    const body = await req.json();
+    const { structuredData, attorneyReport } = body;
+
+    if (!process.env.RESEND_API_KEY) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Email configuration missing." }), 
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const priority = structuredData?.priority || "NURTURE";
+    const clientName = structuredData?.fullName || "New Lead";
+    
+    const { data, error } = await resend.emails.send({
+      from: 'RRU Matchmaker <onboarding@resend.dev>', 
+      to: ['saintmartin.revenuegroup@gmail.com'],
+      subject: `[RRU Matchmaker] ${priority} Priority Buyer: ${clientName}`,
+      text: attorneyReport || "No report generated.",
       html: `
-        <h1>New RRU™ Buyer Lead</h1>
-        <p><strong>Name:</strong> ${structuredData.fullName}</p>
-        <p><strong>Priority:</strong> ${structuredData.priority}</p>
-        <div style="background:#f4f4f4; padding:10px;">
-            <pre style="white-space:pre-wrap;">${attorneyReport}</pre>
+        <div style="font-family: monospace; white-space: pre-wrap; font-size: 14px; color: #333; background-color: #f8fafc; padding: 20px; border-radius: 8px;">
+          ${attorneyReport || "No report generated."}
         </div>
       `,
-    };
+    });
 
-    await sgMail.send(msg);
-    return res.status(200).json({ success: true });
-    
-  } catch (error: any) {
-    // SendGrid specific error logging
-    if (error.response) {
-      console.error("SendGrid API Error Details:", error.response.body);
-    } else {
-      console.error("General Error:", error);
+    if (error) {
+      console.error("[Intake API] Resend Error:", error);
+      return new Response(
+        JSON.stringify({ success: false, error: "Failed to dispatch email." }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
-    return res.status(500).json({ success: false, error: "Failed to send email" });
+
+    return new Response(
+      JSON.stringify({ success: true, message: "Profile submitted and emailed successfully." }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Internal Server Error." }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
   }
 }
