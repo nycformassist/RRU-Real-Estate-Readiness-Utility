@@ -109,6 +109,16 @@ const ALL_FIELDS: { key: string; label: string; critical: boolean }[] = [
   { key: "obstacles",      label: "Obstacles & Concerns",  critical: false },
 ];
 
+// ── Defensive boolean coercion ───────────────────────────────────────────────
+// Mirrors the same helper in api/evaluate.ts. The backend now guarantees
+// real booleans via EVALUATE_RESPONSE_SCHEMA, but this stays as a second
+// line of defense against transport quirks or a future API change.
+function toBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return Boolean(value);
+}
+
 // ── Client-side preflight validation ─────────────────────────────────────────
 function validateInputPreflight(phase: number, text: string): string | null {
   const t = text.trim();
@@ -237,6 +247,13 @@ export default function App() {
   const [answers,      setAnswers]     = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
   const [finalScore,   setFinalScore]  = useState<StructuredData | null>(null);
+  // Tracks consecutive *local* preflight rejections for the current phase.
+  // If the client-side regex/length checks reject the same phase 2+ times
+  // in a row, we stop trusting them and send straight to the AI instead —
+  // this is the "never permanently trapped" escape hatch. Resets to 0
+  // whenever the phase advances or a message clears preflight.
+  const [preflightFailCount, setPreflightFailCount] = useState(0);
+  const PREFLIGHT_BYPASS_THRESHOLD = 2;
 
   const addMessage = (role: Message["role"], text: string) => {
     setMessages((prev) => [
@@ -252,9 +269,19 @@ export default function App() {
     addMessage("user", text);
 
     const preflightError = validateInputPreflight(currentPhase, text);
-    if (preflightError) {
+    if (preflightError && preflightFailCount < PREFLIGHT_BYPASS_THRESHOLD) {
+      setPreflightFailCount((n) => n + 1);
       addMessage("model", preflightError);
       return;
+    }
+    if (preflightError) {
+      // Bypass: local validation has rejected this phase twice in a row.
+      // Rather than trap the client in a loop the AI never even sees,
+      // stop trusting the local check and let /api/evaluate decide —
+      // it has the full phase rule (including pushback scripts for
+      // "I don't know" / "I'm not sure" style answers) that this
+      // lightweight client-side regex never had.
+      console.warn(`[App] Preflight bypassed for phase ${currentPhase} after ${preflightFailCount} local rejections.`);
     }
 
     setIsLoading(true);
@@ -282,19 +309,35 @@ export default function App() {
         data.agentResponse || "Your response does not meet the minimum requirements for this phase. Please provide the specific information requested."
       );
 
-      if (data.isValid && data.extractedData) {
+      const isValid = toBool(data.isValid);
+      const hasExtractedData = typeof data.extractedData === "string" && data.extractedData.trim().length > 0;
+      const inconsistencyDetected = toBool(data.inconsistencyDetected);
+      const followUpTriggered = toBool(data.followUpTriggered);
+
+      // Mirrors the server-side computation in api/evaluate.ts: advance if
+      // the server explicitly says so, OR if the answer was valid with
+      // real extracted data and neither hold-back flag is set. This is
+      // belt-and-suspenders — the backend already guarantees this
+      // invariant — but keeping the same OR-based logic on both sides
+      // means a future backend change can't silently desync the two
+      // without a matching frontend change being obviously needed too.
+      const shouldAdvance =
+        toBool(data.advancePhase) ||
+        (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
+
+      if (isValid && hasExtractedData) {
         setAnswers((prev) => ({
           ...prev,
           [currentQuestion.field]: String(data.extractedData).trim(),
         }));
       }
 
-      if (data.advancePhase === true) {
+      if (shouldAdvance) {
+        setPreflightFailCount(0);
         const nextPhase = currentPhase + 1;
 
         if (nextPhase <= INTAKE_QUESTIONS.length) {
           setCurrentPhase(nextPhase);
-          // Redundant static question timeout removed to eliminate duplicate questioning.
         } else {
           setCurrentPhase(INTAKE_QUESTIONS.length + 1);
           setTimeout(() => {

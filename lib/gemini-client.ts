@@ -65,7 +65,12 @@ function extractStatusCode(err: unknown): number | null {
   return match ? Number(match[1]) : null;
 }
 
-async function callModelWithRetry(modelName: string, systemInstruction: string, prompt: string) {
+async function callModelWithRetry(
+  modelName: string,
+  systemInstruction: string,
+  prompt: string,
+  responseSchema?: object
+) {
   const ai = getGeminiClient();
   let lastErr: unknown;
 
@@ -74,7 +79,11 @@ async function callModelWithRetry(modelName: string, systemInstruction: string, 
       return await ai.models.generateContent({
         model: modelName,
         contents: prompt,
-        config: { systemInstruction, responseMimeType: "application/json" },
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          ...(responseSchema ? { responseSchema } : {}),
+        },
       });
     } catch (err) {
       lastErr = err;
@@ -96,10 +105,15 @@ async function callModelWithRetry(modelName: string, systemInstruction: string, 
  * Generates a JSON response, with retry-with-backoff on the primary model
  * and a one-time fallback to a different model generation if the primary
  * is still unavailable after retries.
+ *
+ * `responseSchema`, if provided, is passed to Gemini's structured-output
+ * mode (see lib/constants.ts EVALUATE_RESPONSE_SCHEMA) so the model is
+ * constrained to return the exact field types requested — no strings
+ * where booleans are expected, no missing required fields.
  */
-export async function generateJSON(systemInstruction: string, prompt: string): Promise<string> {
+export async function generateJSON(systemInstruction: string, prompt: string, responseSchema?: object): Promise<string> {
   try {
-    const response = await callModelWithRetry(MODEL_NAME, systemInstruction, prompt);
+    const response = await callModelWithRetry(MODEL_NAME, systemInstruction, prompt, responseSchema);
     return (response.text || "{}").trim();
   } catch (primaryErr) {
     const status = extractStatusCode(primaryErr);
@@ -111,7 +125,7 @@ export async function generateJSON(systemInstruction: string, prompt: string): P
 
     console.warn(`[gemini-client] ${MODEL_NAME} exhausted retries — falling back to ${FALLBACK_MODEL_NAME}.`);
     try {
-      const response = await callModelWithRetry(FALLBACK_MODEL_NAME, systemInstruction, prompt);
+      const response = await callModelWithRetry(FALLBACK_MODEL_NAME, systemInstruction, prompt, responseSchema);
       return (response.text || "{}").trim();
     } catch (fallbackErr) {
       const fbStatus = extractStatusCode(fallbackErr);

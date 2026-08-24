@@ -4,8 +4,10 @@
  * Per-phase gatekeeping for the RRU Buyer Interview (Gemini-driven).
  * Kept intentionally thin: all prompt text, phase rules, and mode logic
  * live in lib/constants.ts; all model-calling/retry logic lives in
- * lib/gemini-client.ts. This file only validates the request shape, calls
- * generateJSON(), and normalizes the response.
+ * lib/gemini-client.ts. This file validates the request shape, calls
+ * generateJSON(), and — critically — recomputes "advancePhase" itself
+ * rather than trusting the model's own value for it. See the "STATE
+ * DESYNC FIX" block below for why.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -14,6 +16,7 @@ import {
   detectBuyerMode,
   isSupportedLanguageCode,
   DEFAULT_LANGUAGE_CODE,
+  EVALUATE_RESPONSE_SCHEMA,
   type BuyerMode,
 } from "../lib/constants.js";
 import { generateJSON, UpstreamUnavailableError } from "../lib/gemini-client.js";
@@ -42,6 +45,20 @@ interface EvaluateResult {
   /** BCP-47 code — persist this and send it back as `language` on the next call. */
   detectedLanguage: string;
   languageSwitchDetected: boolean;
+}
+
+/**
+ * Coerces "boolean-ish" values (real booleans, and the string forms a
+ * model or a lossy JSON round-trip might produce) to a real boolean.
+ * `EVALUATE_RESPONSE_SCHEMA` should make the string cases impossible in
+ * practice, but this stays as a second line of defense — cheap insurance
+ * against any client (or a future prompt change) that stops using the
+ * schema.
+ */
+function toBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return Boolean(value);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -101,7 +118,7 @@ Previously Collected: ${JSON.stringify(allAnswers || {})}
 Evaluate against the Phase ${phaseNum} rule, run the consistency check against Previously Collected, and run the dynamic follow-up check. Return your JSON response.`;
 
   try {
-    const responseText = await generateJSON(systemInstruction, prompt);
+    const responseText = await generateJSON(systemInstruction, prompt, EVALUATE_RESPONSE_SCHEMA);
 
     let parsed: Record<string, unknown>;
     try {
@@ -112,25 +129,56 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
       return;
     }
 
+    const isValid = toBool(parsed.isValid);
+    const extractedData = typeof parsed.extractedData === "string" ? parsed.extractedData.trim() : "";
+    const hasExtractedData = extractedData.length > 0;
+    const inconsistencyDetected = toBool(parsed.inconsistencyDetected);
+    const followUpTriggered = toBool(parsed.followUpTriggered);
+    const modelAdvancePhase = toBool(parsed.advancePhase);
+
+    // ── STATE DESYNC FIX ────────────────────────────────────────────────
+    // advancePhase is now COMPUTED here, not trusted directly from the
+    // model's own field. The two legitimate reasons to hold the phase are
+    // exactly `inconsistencyDetected` and `followUpTriggered` (both are
+    // themselves separately validated flags, not free-form claims) — see
+    // the ADVANCE-PHASE RULE in lib/constants.ts. If isValid is true,
+    // there's real extractedData, and neither hold-back flag is set, the
+    // phase advances regardless of what the model wrote for advancePhase
+    // itself. This is what actually fixes the desync: previously, if the
+    // model's conversational agentResponse moved on to the next question
+    // but it forgot (or mis-set) advancePhase, the UI would silently
+    // stall on the old phase while the model had already moved on. Now
+    // the flag it might get wrong is no longer load-bearing.
+    //
+    // modelAdvancePhase is still consulted as an OR: if the model
+    // explicitly says advance (e.g. for a phase rule nuance not captured
+    // by isValid/extractedData alone) that's honored too — this can only
+    // ever advance MORE readily than before, never get stuck worse.
+    const advancePhase =
+      modelAdvancePhase ||
+      (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
+
+    if (modelAdvancePhase !== advancePhase) {
+      console.warn(
+        `[api/evaluate] Corrected advancePhase: model said ${modelAdvancePhase}, server computed ${advancePhase} ` +
+          `(isValid=${isValid}, hasExtractedData=${hasExtractedData}, inconsistencyDetected=${inconsistencyDetected}, followUpTriggered=${followUpTriggered}).`
+      );
+    }
+
     const result: EvaluateResult = {
-      isValid: Boolean(parsed.isValid),
-      extractedData: typeof parsed.extractedData === "string" ? parsed.extractedData : null,
+      isValid,
+      extractedData: hasExtractedData ? extractedData : null,
       agentResponse:
         typeof parsed.agentResponse === "string" && parsed.agentResponse.trim().length > 0
           ? parsed.agentResponse.trim()
           : "Thanks — could you share a bit more so we can move forward?",
-      advancePhase:
-        Boolean(parsed.advancePhase) &&
-        Boolean(parsed.isValid) &&
-        parsed.extractedData !== null &&
-        typeof parsed.extractedData === "string" &&
-        (parsed.extractedData as string).trim().length > 0,
-      inconsistencyDetected: Boolean(parsed.inconsistencyDetected),
-      followUpTriggered: Boolean(parsed.followUpTriggered),
+      advancePhase,
+      inconsistencyDetected,
+      followUpTriggered,
       detectedLanguage: isSupportedLanguageCode(parsed.detectedLanguage as string)
         ? (parsed.detectedLanguage as string)
         : (pinnedLanguage || DEFAULT_LANGUAGE_CODE),
-      languageSwitchDetected: Boolean(parsed.languageSwitchDetected),
+      languageSwitchDetected: toBool(parsed.languageSwitchDetected),
     };
 
     res.status(200).json(result);

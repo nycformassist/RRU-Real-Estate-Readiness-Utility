@@ -34,6 +34,41 @@ export const MODEL_NAME = "gemini-3.5-flash";
 export const FALLBACK_MODEL_NAME = "gemini-2.5-flash";
 
 // ─────────────────────────────────────────────────────────────────────────
+// Strict response schema for /api/evaluate
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Passed as `responseSchema` alongside responseMimeType: "application/json"
+// so Gemini's structured-output mode enforces real JSON types at the API
+// level — isValid/advancePhase/etc. cannot come back as strings, numbers,
+// or be omitted. This is defense-in-depth, not a substitute for the
+// server-side advancePhase recomputation in api/evaluate.ts: the schema
+// guarantees TYPES are correct, not that the VALUE of advancePhase is
+// logically consistent with isValid — that's still validated in code.
+export const EVALUATE_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    isValid: { type: "BOOLEAN" },
+    extractedData: { type: "STRING", nullable: true },
+    agentResponse: { type: "STRING" },
+    advancePhase: { type: "BOOLEAN" },
+    inconsistencyDetected: { type: "BOOLEAN" },
+    followUpTriggered: { type: "BOOLEAN" },
+    detectedLanguage: { type: "STRING" },
+    languageSwitchDetected: { type: "BOOLEAN" },
+  },
+  required: [
+    "isValid",
+    "extractedData",
+    "agentResponse",
+    "advancePhase",
+    "inconsistencyDetected",
+    "followUpTriggered",
+    "detectedLanguage",
+    "languageSwitchDetected",
+  ],
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────
 // Language access — NYC Local Law 30 (2017) designated citywide languages
 // ─────────────────────────────────────────────────────────────────────────
 //
@@ -504,7 +539,25 @@ RESPONSE FORMAT — return ONLY a valid JSON object, no markdown, no preamble
 VALID RESPONSE BEHAVIOR:
 When a response fully satisfies the phase requirements and there is no
 contradiction and no pending follow-up: issue a brief, warm 1–2 sentence
-acknowledgment and advance.`;
+acknowledgment and advance.
+
+─────────────────────────────────────────
+ADVANCE-PHASE RULE (critical — this field drives the app's UI state)
+─────────────────────────────────────────
+If "isValid" is true and the client's answer satisfies the Phase Rule
+above, "advancePhase" MUST be true. There are exactly two exceptions,
+both defined above — do not invent others:
+  1. "inconsistencyDetected" is true AND this is the first time that
+     contradiction is being surfaced (client hasn't confirmed yet).
+  2. "followUpTriggered" is true AND the client's current answer does not
+     already contain the follow-up detail being asked for.
+If neither exception applies, "advancePhase" and "isValid" must agree —
+never write an "agentResponse" that acknowledges the current answer and
+asks the NEXT phase's question while leaving "advancePhase" false. If your
+agentResponse text moves the conversation forward, "advancePhase" must
+say so too. When genuinely uncertain, prefer advancing over stalling — a
+false "hold" traps the client in a loop; a false "advance" merely asks one
+extra confirming question next turn.`;
 }
 
 /**
