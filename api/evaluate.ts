@@ -1,47 +1,33 @@
 import { generateText } from "../lib/gemini-client.js";
-import { PHASE_RULES } from "../lib/constants.js";
+import { 
+  buildEvaluateSystemInstruction, 
+  detectBuyerMode, 
+  EVALUATE_RESPONSE_SCHEMA 
+} from "../lib/constants.js";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { phase, question, answer, allAnswers } = body;
+    const { phase, answer, allAnswers } = body;
 
-    const currentRule = PHASE_RULES[phase];
+    // Detect the buyer mode dynamically from previous answers (Defaults to STANDARD)
+    const mode = detectBuyerMode(allAnswers?.buyingGoal || "");
 
-    if (!currentRule) {
-      return new Response(JSON.stringify({ error: "Invalid phase requested." }), { status: 400 });
-    }
+    // Use your original powerhouse instruction builder to get language, follow-up, and mode logic
+    const systemPrompt = buildEvaluateSystemInstruction(phase, mode, "en");
 
-    const systemPrompt = `
-      You are an expert Real Estate Intake Assistant. 
-      The user is currently in Phase ${phase} of 10.
-      
-      Target Field: ${currentRule.field}
-      Validation Rule: ${currentRule.rule}
-      
-      User's Answer: "${answer}"
-      
-      Task: Evaluate if the user's answer satisfies the validation rule.
-      
-      CRITICAL INSTRUCTIONS:
-      1. You MUST output ONLY valid JSON.
-      2. 'isValid' MUST be a strict boolean (true or false).
-      3. 'advancePhase' MUST be a strict boolean (true or false).
-      4. If 'isValid' is true, 'advancePhase' MUST be true.
-      5. 'extractedData' should contain the cleaned data if valid, or empty string if invalid.
-      6. 'agentResponse' must be a conversational reply acknowledging the answer (if valid) and seamlessly asking the question for the next phase, OR politely asking for clarification if invalid.
-      
-      JSON SCHEMA:
-      {
-        "isValid": boolean,
-        "advancePhase": boolean,
-        "extractedData": "string",
-        "agentResponse": "string"
-      }
+    const userPrompt = `
+PREVIOUSLY COLLECTED DATA:
+${JSON.stringify(allAnswers, null, 2)}
+
+CURRENT PHASE: ${phase}
+CLIENT'S ANSWER: "${answer}"
     `;
 
-    const aiResponse = await generateText(systemPrompt);
-    // Ensure you parse the JSON correctly from the Gemini output
+    // Generate response using your strict EVALUATE_RESPONSE_SCHEMA
+    const aiResponse = await generateText(systemPrompt + "\n\n" + userPrompt, EVALUATE_RESPONSE_SCHEMA);
+    
+    // Clean and parse the output
     const cleanJson = aiResponse.replace(/```json\n?|```/g, "").trim();
     const result = JSON.parse(cleanJson);
 
