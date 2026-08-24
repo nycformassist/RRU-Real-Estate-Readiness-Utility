@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     // Detect the buyer mode dynamically from previous answers (Defaults to STANDARD)
     const mode = detectBuyerMode(allAnswers?.buyingGoal || "");
 
-    // Use your original powerhouse instruction builder to get language, follow-up, and mode logic
+    // Use your original powerhouse instruction builder
     const systemPrompt = buildEvaluateSystemInstruction(phase, mode, "en");
 
     const userPrompt = `
@@ -22,9 +22,15 @@ ${JSON.stringify(allAnswers, null, 2)}
 
 CURRENT PHASE: ${phase}
 CLIENT'S ANSWER: "${answer}"
+
+CRITICAL INSTRUCTION FOR 'agentResponse':
+You are ONLY responsible for acknowledging the client's answer. 
+DO NOT ask the next question. DO NOT say "Let's move on to the next step." 
+The frontend application will automatically ask the next question immediately after you. 
+Provide a warm, brief 1-sentence acknowledgment of their data (e.g., "Thank you, I've saved your contact info.") and stop.
     `;
 
-    // Generate response using your strict EVALUATE_RESPONSE_SCHEMA and the correct generateJSON function
+    // Generate response
     const aiResponse = await generateJSON(systemPrompt, userPrompt, EVALUATE_RESPONSE_SCHEMA);
     
     // Clean and parse the output

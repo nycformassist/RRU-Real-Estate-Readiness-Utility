@@ -276,7 +276,7 @@ export default function App() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      // Add the AI's response to the chat
+      // Add the AI's brief acknowledgment to the chat
       addMessage(
         "model",
         data.agentResponse || "Your response does not meet the minimum requirements. Please clarify."
@@ -293,7 +293,7 @@ export default function App() {
         }));
       }
 
-      // THE FIX: Bulletproof advancement logic
+      // Bulletproof advancement logic
       const shouldAdvance = 
         data.advancePhase === true || 
         data.advancePhase === "true" || 
@@ -305,6 +305,12 @@ export default function App() {
 
         if (nextPhase <= INTAKE_QUESTIONS.length) {
           setCurrentPhase(nextPhase);
+          
+          // THE FIX: Restore the frontend asking your official question
+          setTimeout(() => {
+            addMessage("model", INTAKE_QUESTIONS[nextPhase - 1].question);
+          }, 600);
+          
         } else {
           setCurrentPhase(INTAKE_QUESTIONS.length + 1);
           setTimeout(() => {
@@ -312,7 +318,7 @@ export default function App() {
               "system",
               "All 10 phases of the buyer qualification interview are complete. Please review your answers below. You may edit any field before submitting. When ready, click **Submit Profile** to send your information to our real estate team."
             );
-          }, 350);
+          }, 600);
         }
       }
     } catch (err) {
