@@ -18,16 +18,19 @@ export type StructuredData = {
   mortgageStatus: string;
   downPayment: string;
   timeline: string;
+  currentHome: string;
   mustHaves: string;
   obstacles: string;
-  scoreFinancial?: number;
-  scoreReadiness?: number;
-  scoreFeasibility?: number;
-  scoreClientProfile?: number;
   score?: number;
-  priority?: "HOT" | "WARM" | "COLD" | "NURTURE";
-  recommendation?: "VIP" | "STANDARD" | "CREDIT_REPAIR" | "NURTURE";
+  readinessBand?: string;
+  financingReadiness?: string;
+  buyerMotivationIndex?: string;
+  purchaseTimeline?: string;
+  buyingPower?: string;
+  propertyMatch?: string;
+  agentPriority?: "A+" | "A" | "B" | "C" | "D";
   redFlags?: string[];
+  recommendedNextStep?: string;
   submittedAt?: string;
 };
 
@@ -37,76 +40,76 @@ const INTAKE_QUESTIONS = [
     phase: 1,
     field: "fullName",
     question:
-      "Welcome to the RRU™ Real Estate Matchmaker. I will guide you through a brief buyer qualification interview to match you with the best properties and agents. To get started, what is your **full name**?",
+      "Welcome to the RRU™ Real Estate Matchmaker. To get started, what is your full name, phone number, and email address?",
   },
   {
     phase: 2,
-    field: "contactInfo",
+    field: "buyingGoal",
     question:
-      "Thank you. What is the best **phone number and/or email address** to reach you?",
+      "Are you looking to buy a primary home, sell, invest, relocate, or looking for commercial property?",
   },
   {
     phase: 3,
-    field: "buyingGoal",
+    field: "location",
     question:
-      "Are you currently looking to buy a primary home, invest, relocate, or are you just exploring the market right now?",
+      "What preferred cities, neighborhoods, or ZIP codes are you targeting? (Or are you looking for best schools, easy commute, etc.?)",
   },
   {
     phase: 4,
-    field: "location",
+    field: "budget",
     question:
-      "Got it. What **cities, neighborhoods, or zip codes** are you primarily interested in?",
+      "What is your target maximum price range? Will this be cash or mortgage?",
   },
   {
     phase: 5,
-    field: "budget",
+    field: "mortgageStatus",
     question:
-      "What is your approximate **target budget or price range** for this property?",
+      "Have you been preapproved by a lender yet? (VA, FHA, Conventional, etc.)",
   },
   {
     phase: 6,
-    field: "mortgageStatus",
+    field: "downPayment",
     question:
-      "Have you already spoken to a lender to get **pre-approved** for a mortgage, or will you be purchasing with cash?",
+      "Roughly how much are you planning to put towards a down payment? (5%, 10%, 20%, Gift/Grant?)",
   },
   {
     phase: 7,
-    field: "downPayment",
+    field: "timeline",
     question:
-      "Roughly how much are you planning to put towards a **down payment**?",
+      "If the perfect property appeared tomorrow, what is your ideal timeline to close? (Immediately, 30-90 days, next year?)",
   },
   {
     phase: 8,
-    field: "timeline",
+    field: "currentHome",
     question:
-      "What is your **ideal timeline** for moving or closing on a property? (e.g., immediately, 3 months, next year)",
+      "What is your current living situation? (Renting, own a home you need to sell, lease ending?)",
   },
   {
     phase: 9,
     field: "mustHaves",
     question:
-      "What are the absolute **'must-haves'** for your new property? (e.g., number of bedrooms, yard, specific amenities)",
+      "What are your absolute 'must-haves'? (Bedrooms, yard, school district, etc.)",
   },
   {
     phase: 10,
     field: "obstacles",
     question:
-      "Finally, are there any **obstacles** holding you back right now, such as credit concerns, saving funds, or a current home you need to sell first?",
+      "Finally, what is the biggest obstacle preventing you from buying today? (Saving, credit, finding property, interest rates?)",
   },
 ];
 
 // ── All required fields for submission guard ─────────────────────────────────
 const ALL_FIELDS: { key: string; label: string; critical: boolean }[] = [
-  { key: "fullName",      label: "Full Name",            critical: true  },
-  { key: "contactInfo",    label: "Contact Information",   critical: true  },
-  { key: "buyingGoal",     label: "Buying Goal",           critical: true  },
-  { key: "location",       label: "Target Location",       critical: false },
-  { key: "budget",         label: "Target Budget",         critical: false },
-  { key: "mortgageStatus", label: "Financing Status",      critical: false },
-  { key: "downPayment",    label: "Down Payment",          critical: false },
-  { key: "timeline",       label: "Timeline",              critical: false },
-  { key: "mustHaves",      label: "Must-Haves",            critical: false },
-  { key: "obstacles",      label: "Obstacles & Concerns",  critical: false },
+  { key: "fullName",      label: "Identity & Contact",   critical: true  },
+  { key: "buyingGoal",    label: "Buying Goal",          critical: true  },
+  { key: "location",      label: "Target Location",      critical: false },
+  { key: "budget",        label: "Budget",               critical: false },
+  { key: "mortgageStatus",label: "Financing Status",     critical: false },
+  { key: "downPayment",   label: "Down Payment",         critical: false },
+  { key: "timeline",      label: "Timeline",             critical: false },
+  { key: "currentHome",   label: "Current Home Status",  critical: false },
+  { key: "mustHaves",     label: "Must-Haves",           critical: false },
+  { key: "obstacles",     label: "Obstacles",            critical: false },
 ];
 
 // ── Client-side preflight validation ─────────────────────────────────────────
@@ -124,11 +127,8 @@ function validateInputPreflight(phase: number, text: string): string | null {
   }
 
   if (phase === 2) {
-    const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
-    const digitCount = (t.match(/\d/g) || []).length;
-    if (!hasEmail && digitCount < 7) {
-      return "Please provide a valid phone number (at least 7 digits) or a valid email address.";
-    }
+    // Phase 2 is now buyingGoal, so we removed the strict phone/email regex check from here 
+    // since we ask for contact info in Phase 1 now according to the blueprint.
   }
 
   return null;
@@ -138,24 +138,21 @@ function validateInputPreflight(phase: number, text: string): string | null {
 function buildStructuredDataFallback(answers: Record<string, string>): StructuredData {
   return {
     fullName:       answers.fullName       || "",
-    contactInfo:    answers.contactInfo    || "",
+    contactInfo:    answers.fullName       || "", // Merged in Phase 1
     buyingGoal:     answers.buyingGoal     || "",
     location:       answers.location       || "",
     budget:         answers.budget         || "",
     mortgageStatus: answers.mortgageStatus || "",
     downPayment:    answers.downPayment    || "",
     timeline:       answers.timeline       || "",
+    currentHome:    answers.currentHome    || "",
     mustHaves:      answers.mustHaves      || "",
     obstacles:      answers.obstacles      || "",
-    scoreFinancial:     0,
-    scoreReadiness:     0,
-    scoreFeasibility:   0,
-    scoreClientProfile: 0,
-    score:              0,
-    priority:           "NURTURE",
-    recommendation:     "NURTURE",
-    redFlags:          ["SYSTEM: Manual agent review and scoring required"],
-    submittedAt:        new Date().toISOString(),
+    score:          0,
+    readinessBand:  "Manual Review",
+    agentPriority:  "D",
+    redFlags:       ["SYSTEM: Manual agent review and scoring required"],
+    submittedAt:    new Date().toISOString(),
   };
 }
 
@@ -166,7 +163,7 @@ function buildFallbackReport(answers: Record<string, string>): string {
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "PROFILE DECISION: MANUAL REVIEW REQUIRED",
-    "READINESS SCORE: N/A  |  PRIORITY: NURTURE",
+    "READINESS SCORE: N/A  |  PRIORITY: D",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "",
     "NOTE: Raw intake data is preserved below.",
@@ -177,13 +174,12 @@ function buildFallbackReport(answers: Record<string, string>): string {
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "SECTION 1: BUYER IDENTIFICATION",
-    `  Full Name:    ${answers.fullName       || "Not provided"}`,
-    `  Contact:      ${answers.contactInfo    || "Not provided"}`,
+    `  Full Name/Contact: ${answers.fullName || "Not provided"}`,
     "",
     "SECTION 2: PURCHASE GOALS",
-    `  Goal:         ${answers.buyingGoal     || "Not provided"}`,
-    `  Location:     ${answers.location       || "Not provided"}`,
-    `  Must-Haves:   ${answers.mustHaves      || "Not provided"}`,
+    `  Goal:         ${answers.buyingGoal  || "Not provided"}`,
+    `  Location:     ${answers.location    || "Not provided"}`,
+    `  Must-Haves:   ${answers.mustHaves   || "Not provided"}`,
     "",
     "SECTION 3: FINANCIAL READINESS",
     `  Budget:       ${answers.budget         || "Not provided"}`,
@@ -191,8 +187,9 @@ function buildFallbackReport(answers: Record<string, string>): string {
     `  Down Payment: ${answers.downPayment    || "Not provided"}`,
     "",
     "SECTION 4: TIMELINE & OBSTACLES",
-    `  Timeline:     ${answers.timeline       || "Not provided"}`,
-    `  Obstacles:    ${answers.obstacles      || "Not provided"}`,
+    `  Timeline:     ${answers.timeline    || "Not provided"}`,
+    `  Current Home: ${answers.currentHome || "Not provided"}`,
+    `  Obstacles:    ${answers.obstacles   || "Not provided"}`,
     "",
     "SECTION 5: AGENT RECOMMENDATION",
     "  Decision: NURTURE / REVIEW",
@@ -234,7 +231,7 @@ export default function App() {
   const [isLoading,     setIsLoading]   = useState(false);
   const [isFinished,    setIsFinished]  = useState(false);
   const [currentPhase, setCurrentPhase] = useState(1);
-  const [answers,      setAnswers]     = useState<Record<string, string>>({});
+  const [answers,       setAnswers]     = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
   const [finalScore,   setFinalScore]  = useState<StructuredData | null>(null);
 
@@ -404,16 +401,16 @@ export default function App() {
   };
 
   const roadmapSteps = [
-    { title: "Full Name",        phase: 1 },
-    { title: "Contact Info",     phase: 2 },
-    { title: "Buying Goal",      phase: 3 },
-    { title: "Location",         phase: 4 },
-    { title: "Budget",           phase: 5 },
-    { title: "Financing",        phase: 6 },
-    { title: "Down Payment",     phase: 7 },
-    { title: "Timeline",         phase: 8 },
-    { title: "Must-Haves",       phase: 9 },
-    { title: "Obstacles",        phase: 10 },
+    { title: "Identity",     phase: 1 },
+    { title: "Buying Goal",  phase: 2 },
+    { title: "Location",     phase: 3 },
+    { title: "Budget",       phase: 4 },
+    { title: "Financing",    phase: 5 },
+    { title: "Down Payment", phase: 6 },
+    { title: "Timeline",     phase: 7 },
+    { title: "Current Home", phase: 8 },
+    { title: "Must-Haves",   phase: 9 },
+    { title: "Obstacles",    phase: 10 },
   ];
 
   const progressPct =
@@ -422,10 +419,11 @@ export default function App() {
       : Math.round(((currentPhase - 1) / INTAKE_QUESTIONS.length) * 100);
 
   const priorityTextColors: Record<string, string> = {
-    HOT:     "text-red-400",
-    WARM:    "text-amber-400",
-    COLD:    "text-slate-400",
-    NURTURE: "text-slate-500",
+    "A+": "text-emerald-400",
+    "A":  "text-emerald-500",
+    "B":  "text-blue-400",
+    "C":  "text-amber-400",
+    "D":  "text-slate-500",
   };
 
   return (
@@ -441,7 +439,7 @@ export default function App() {
             </h1>
           </div>
           <p className="text-[10px] text-slate-600 font-mono uppercase tracking-widest">
-            Buyer Qualification v1.0
+            AI Qualification Engine
           </p>
         </div>
 
@@ -483,16 +481,16 @@ export default function App() {
         {finalScore && (
           <div className="p-4 border-t border-slate-800 bg-slate-900/50 shrink-0">
             <div className="text-[10px] uppercase font-bold text-slate-500 mb-3 tracking-widest">
-              Match Result
+              Buyer Readiness Score
             </div>
             <div className="flex items-baseline gap-1 mb-1">
-              <span className={`text-3xl font-black ${priorityTextColors[finalScore.priority || "NURTURE"]}`}>
+              <span className={`text-3xl font-black ${priorityTextColors[finalScore.agentPriority || "D"]}`}>
                 {finalScore.score ?? "—"}
               </span>
-              <span className="text-slate-600 text-sm font-mono">/12</span>
+              <span className="text-slate-600 text-sm font-mono">/100</span>
             </div>
-            <div className={`text-xs font-bold uppercase tracking-widest mb-3 ${priorityTextColors[finalScore.priority || "NURTURE"]}`}>
-              {finalScore.priority || "—"} Priority
+            <div className={`text-xs font-bold uppercase tracking-widest mb-3 ${priorityTextColors[finalScore.agentPriority || "D"]}`}>
+              Priority {finalScore.agentPriority || "D"} 
             </div>
           </div>
         )}
