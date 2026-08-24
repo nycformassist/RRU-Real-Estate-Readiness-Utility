@@ -1,4 +1,4 @@
-import { generateText } from "../lib/gemini-client.js";
+import { generateJSON } from "../lib/gemini-client.js";
 import { 
   buildEvaluateSystemInstruction, 
   detectBuyerMode, 
@@ -24,8 +24,8 @@ CURRENT PHASE: ${phase}
 CLIENT'S ANSWER: "${answer}"
     `;
 
-    // Generate response using your strict EVALUATE_RESPONSE_SCHEMA
-    const aiResponse = await generateText(systemPrompt + "\n\n" + userPrompt, EVALUATE_RESPONSE_SCHEMA);
+    // Generate response using your strict EVALUATE_RESPONSE_SCHEMA and the correct generateJSON function
+    const aiResponse = await generateJSON(systemPrompt, userPrompt, EVALUATE_RESPONSE_SCHEMA);
     
     // Clean and parse the output
     const cleanJson = aiResponse.replace(/```json\n?|```/g, "").trim();
