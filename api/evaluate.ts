@@ -1,5 +1,5 @@
-import { generateText } from "../lib/gemini-client"; // Adjust path if needed
-import { PHASE_RULES } from "../lib/constants";
+import { generateText } from "../lib/gemini-client.js";
+import { PHASE_RULES } from "../lib/constants.js";
 
 export async function POST(req: Request) {
   try {
