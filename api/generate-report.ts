@@ -21,7 +21,7 @@ Generate the internal agent readiness report based on the following collected bu
 ${JSON.stringify(answers, null, 2)}
     `;
 
-    // Call Gemini using your robust generateJSON helper with fallback logic
+    // Call Gemini using robust generateJSON helper with fallback logic
     const aiResponse = await generateJSON(systemInstruction, userPrompt);
     
     if (!aiResponse || aiResponse.trim() === "{}") {
@@ -36,41 +36,34 @@ ${JSON.stringify(answers, null, 2)}
       throw new Error("Invalid report JSON structure returned from Gemini.");
     }
 
-    // Format a readable text version for the email body
+    // Format the precise RRU email dashboard report
     const attorneyReport = [
-      `RRU™ REAL ESTATE MATCHMAKER — CONFIDENTIAL BUYER PROFILE`,
+      `RRU™ AI BUYER QUALIFICATION & READINESS ENGINE`,
       `Generated: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
-      ``,
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `PROFILE DECISION: ${structuredData.readinessBand || "REVIEW REQUIRED"}`,
-      `READINESS SCORE: ${structuredData.score ?? "N/A"} / 100  |  PRIORITY: ${structuredData.agentPriority || "NURTURE"}`,
+      `BUYER READINESS SCORE: ${structuredData.score ?? "N/A"} / 100  |  TIER: ${structuredData.readinessBand || "Unknown"}`,
+      `AGENT PRIORITY SCORE:  ${structuredData.agentPriority || "D"}`,
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
       ``,
-      `BUYER SUMMARY:`,
+      `AI BUYER SUMMARY:`,
       parsedReport.buyerSummary || "No summary provided.",
       ``,
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `SECTION 1: BUYER IDENTIFICATION`,
-      `  Full Name:    ${structuredData.fullName || answers.fullName || "Not provided"}`,
-      `  Contact:      ${structuredData.contactInfo || answers.contactInfo || "Not provided"}`,
-      `  Language:     ${structuredData.clientLanguage || "English"}`,
+      `QUALIFICATION METRICS:`,
+      `  Financing Readiness:    ${structuredData.financingReadiness || "Unknown"}`,
+      `  Motivation Index:       ${structuredData.buyerMotivationIndex || "Unknown"}`,
+      `  Purchase Timeline:      ${structuredData.purchaseTimeline || "Unknown"}`,
+      `  Buying Power:           ${structuredData.buyingPower || "Unknown"}`,
+      `  Property Match:         ${structuredData.propertyMatch || "Unknown"}`,
       ``,
-      `SECTION 2: PURCHASE GOALS`,
-      `  Goal:         ${structuredData.buyingGoal || answers.buyingGoal || "Not provided"}`,
-      `  Location:     ${structuredData.location || answers.location || "Not provided"}`,
-      `  Must-Haves:   ${structuredData.mustHaves || answers.mustHaves || "Not provided"}`,
+      `DECISION RISK FLAGS:`,
+      ...(structuredData.redFlags && structuredData.redFlags.length > 0 
+          ? structuredData.redFlags.map((flag: string) => `  - ${flag}`) 
+          : ["  - None identified."]),
       ``,
-      `SECTION 3: FINANCIAL READINESS`,
-      `  Budget:       ${structuredData.budget || answers.budget || "Not provided"}`,
-      `  Financing:    ${structuredData.mortgageStatus || answers.mortgageStatus || "Not provided"}`,
-      `  Down Payment: ${structuredData.downPayment || answers.downPayment || "Not provided"}`,
-      ``,
-      `SECTION 4: TIMELINE & OBSTACLES`,
-      `  Timeline:     ${structuredData.timeline || answers.timeline || "Not provided"}`,
-      `  Obstacles:    ${structuredData.obstacles || answers.obstacles || "Not provided"}`,
-      ``,
-      `SECTION 5: AGENT RECOMMENDATION`,
-      `  Next Step:    ${structuredData.recommendedNextStep || "Review Profile"}`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `RECOMMENDED NEXT STEP:`,
+      `  >>> ${structuredData.recommendedNextStep || "Review Profile"} <<<`
     ].join("\n");
 
     return new Response(
@@ -80,6 +73,7 @@ ${JSON.stringify(answers, null, 2)}
 
   } catch (error: any) {
     console.error("[Report API Error Critical]:", error.message);
+    // Return a 500 error so it stops the email from sending blank data
     return new Response(
       JSON.stringify({ error: error.message || "Failed to generate report structure." }), 
       { status: 500, headers: { "Content-Type": "application/json" } }
