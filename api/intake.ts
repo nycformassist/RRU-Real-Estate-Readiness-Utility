@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     
     const { data, error } = await resend.emails.send({
       from: 'RRU Matchmaker <onboarding@resend.dev>', 
-      to: ['saintmartin.revenuegroup@gmail.com'],
+      to: ['healthcarebyvalentine@gmail.com'],
       subject: `[RRU Matchmaker] ${priority} Priority Buyer: ${clientName}`,
       text: attorneyReport || "No report generated.",
       html: `
