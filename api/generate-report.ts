@@ -1,242 +1,88 @@
-/**
- * api/generate-report.ts — POST /api/generate-report
- *
- * Generates the Buyer Readiness Report (Gemini-driven), then validates and
- * re-derives every scored/labeled field server-side so the numbers in the
- * response can never drift from the model's own stated evidence. The model
- * proposes; this handler disposes. Model-calling/retry logic lives in
- * lib/gemini-client.ts.
- */
-
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-import {
-  CATEGORY_WEIGHTS,
-  ScoreCategory,
-  SCORE_CATEGORY_KEYS,
-  buildReportSystemInstruction,
-  detectBuyerMode,
-  financingReadinessLabel,
-  motivationIndexLabel,
-  readinessBand,
-  RISK_FLAG_TYPES,
-  languageByCode,
-  isSupportedLanguageCode,
-  type BuyerMode,
+import { generateJSON } from "../lib/gemini-client.js";
+import { 
+  buildReportSystemInstruction, 
+  detectBuyerMode 
 } from "../lib/constants.js";
-import { generateJSON, UpstreamUnavailableError } from "../lib/gemini-client.js";
 
-const CATEGORY_SCORE_FIELD: Record<ScoreCategory, string> = {
-  financialReadiness: "scoreFinancialReadiness",
-  motivation: "scoreMotivation",
-  timeline: "scoreTimeline",
-  propertyClarity: "scorePropertyClarity",
-  financingStatus: "scoreFinancingStatus",
-  decisionAuthority: "scoreDecisionAuthority",
-  documentation: "scoreDocumentation",
-};
-
-function clamp(value: number, max: number): number {
-  return Math.min(max, Math.max(0, Math.round(Number.isFinite(value) ? value : 0)));
-}
-
-/**
- * Re-derives the deterministic risk flags directly from the raw intake
- * answers rather than trusting the model's own "riskFlags" array. This is
- * the same pattern the legacy engine used for its calibration passes: let
- * the model draft, then verify anything that has a mechanical answer.
- */
-function computeRiskFlags(answers: Record<string, unknown>, categoryScores: Record<ScoreCategory, number>): string[] {
-  const flags: string[] = [];
-  const mortgageStatus = String(answers.mortgageStatus || "").toLowerCase();
-  const downPayment = String(answers.downPayment || "").toLowerCase();
-  const timelineText = String(answers.timeline || "").toLowerCase();
-  const currentHome = String(answers.currentHomeSituation || "").toLowerCase();
-
-  const isCash = mortgageStatus.includes("cash");
-  const isPreapproved = mortgageStatus.includes("preapprov");
-
-  if (!isCash && !isPreapproved) {
-    flags.push("MISSING PREAPPROVAL: Buyer has not confirmed preapproval and is not paying cash.");
-  }
-  if (!isCash && (downPayment.includes("unknown") || downPayment.trim().length === 0)) {
-    flags.push("NO DOWN PAYMENT: Down payment source or amount has not been established.");
-  }
-  if (categoryScores.timeline <= 4 || timelineText.includes("don't know") || timelineText.includes("not sure")) {
-    flags.push("UNCLEAR TIMELINE: No firm purchase timeline has been established.");
-  }
-  if (categoryScores.decisionAuthority <= 4) {
-    flags.push("MULTIPLE DECISION MAKERS: Decision-making authority is shared or unconfirmed.");
-  }
-  if (currentHome.includes("need to sell")) {
-    flags.push("NEEDS TO SELL EXISTING HOME: Purchase may be contingent on the sale of a current property.");
-  }
-  if (!downPayment.match(/credit|score/) && !mortgageStatus.match(/credit|score/)) {
-    flags.push("CREDIT UNKNOWN: No credit information has been shared or confirmed.");
-  }
-  const financialText = String(answers.budget || "") + " " + String(answers.categoryEvidence ?? "");
-  if (financialText.toLowerCase().includes("between jobs") || (financialText.toLowerCase().includes("self-employed") && !financialText.toLowerCase().includes("confirmed"))) {
-    flags.push("EMPLOYMENT INSTABILITY: Employment or income stability has not been confirmed.");
-  }
-
-  return flags;
-}
-
-function derivePropertyMatch(mustHaves: string, buyingGoal: string): string[] {
-  const text = `${mustHaves} ${buyingGoal}`.toLowerCase();
-  const types: Record<string, string> = {
-    condo: "Condo",
-    "co-op": "Co-op",
-    coop: "Co-op",
-    townhouse: "Townhouse",
-    "single family": "Single Family",
-    "single-family": "Single Family",
-    "multi-family": "Multi-Family",
-    multifamily: "Multi-Family",
-    investment: "Investment",
-    luxury: "Luxury",
-    commercial: "Commercial",
-  };
-  const matches = new Set<string>();
-  for (const [kw, label] of Object.entries(types)) {
-    if (text.includes(kw)) matches.add(label);
-  }
-  return matches.size > 0 ? Array.from(matches) : ["Unspecified"];
-}
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    res.status(405).json({ error: "Method not allowed" });
-    return;
-  }
-
-  if (!process.env.GEMINI_API_KEY) {
-    console.error("[api/generate-report] FATAL: GEMINI_API_KEY is not set");
-    res.status(500).json({ error: "Server misconfiguration: missing GEMINI_API_KEY" });
-    return;
-  }
-
-  const { answers } = (req.body || {}) as { answers?: Record<string, unknown> };
-
-  if (!answers || typeof answers !== "object") {
-    res.status(400).json({ error: "Missing or invalid answers object" });
-    return;
-  }
-
-  const buyingGoal = String(answers.buyingGoal || "");
-  const mode: BuyerMode = detectBuyerMode(buyingGoal);
-  const systemInstruction = buildReportSystemInstruction(mode);
-
-  const prompt = `Generate the Buyer Readiness Report from this intake data:\n\n${JSON.stringify(answers, null, 2)}\n\nPopulate categoryEvidence for every category BEFORE writing any numeric score. Apply all scoring rules strictly. Verify your arithmetic before returning. The "score" field must equal the exact sum of the 7 category scores. Return the JSON object.`;
-
-  let parsed: Record<string, unknown>;
+export async function POST(req: Request) {
   try {
-    const responseText = await generateJSON(systemInstruction, prompt);
-    try {
-      parsed = JSON.parse(responseText);
-    } catch {
-      console.error("[api/generate-report] Malformed model response:", responseText);
-      res.status(500).json({ error: "RRU returned a malformed report response" });
-      return;
+    const body = await req.json();
+    const { answers } = body;
+
+    if (!answers || Object.keys(answers).length === 0) {
+      return new Response(JSON.stringify({ error: "No answers provided." }), { status: 400 });
     }
-  } catch (err: unknown) {
-    if (err instanceof UpstreamUnavailableError) {
-      console.error("[api/generate-report] Upstream unavailable:", err.message);
-      res.status(503).json({
-        error: "RRU is temporarily busy — please try again in a few seconds.",
-        retryable: true,
-      });
-      return;
+
+    const mode = detectBuyerMode(answers.buyingGoal || "");
+    const systemInstruction = buildReportSystemInstruction(mode);
+
+    const userPrompt = `
+Generate the internal agent readiness report based on the following collected buyer intake answers:
+${JSON.stringify(answers, null, 2)}
+    `;
+
+    // Call Gemini using your robust generateJSON helper with fallback logic
+    const aiResponse = await generateJSON(systemInstruction, userPrompt);
+    
+    if (!aiResponse || aiResponse.trim() === "{}") {
+      throw new Error("Gemini returned an empty response during report generation.");
     }
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[api/generate-report] Report generation error:", message);
-    res.status(500).json({ error: "Failed to generate report", detail: message });
-    return;
-  }
 
-  if (!parsed.structuredData || !parsed.buyerSummary) {
-    console.error("[api/generate-report] Report missing required fields:", Object.keys(parsed));
-    res.status(500).json({ error: "RRU report was incomplete" });
-    return;
-  }
+    const cleanJson = aiResponse.replace(/```json\n?|```/g, "").trim();
+    const parsedReport = JSON.parse(cleanJson);
+    const structuredData = parsedReport.structuredData;
 
-  const sd = parsed.structuredData as Record<string, unknown>;
-
-  // ── Rigid math: clamp every category to its weight ceiling, then
-  //    recompute the total as their exact sum. The model's own "score"
-  //    field is never trusted directly. ─────────────────────────────────
-  const categoryScores = {} as Record<ScoreCategory, number>;
-  for (const category of SCORE_CATEGORY_KEYS) {
-    const field = CATEGORY_SCORE_FIELD[category];
-    const raw = Number((sd as Record<string, unknown>)[field] ?? 0);
-    const clamped = clamp(raw, CATEGORY_WEIGHTS[category]);
-    categoryScores[category] = clamped;
-    (sd as Record<string, unknown>)[field] = clamped;
-  }
-
-  // Require categoryEvidence to exist for every category — chain-of-thought
-  // must be present, or that category is forced to its lowest band.
-  const evidence = (sd.categoryEvidence as Record<string, unknown>) || {};
-  for (const category of SCORE_CATEGORY_KEYS) {
-    const ev = evidence[category];
-    const hasEvidence = typeof ev === "string" && ev.trim().length > 0;
-    if (!hasEvidence && categoryScores[category] > 0) {
-      console.warn(`[api/generate-report] No categoryEvidence for "${category}" — forcing score to 0.`);
-      categoryScores[category] = 0;
-      (sd as Record<string, unknown>)[CATEGORY_SCORE_FIELD[category]] = 0;
+    if (!structuredData) {
+      throw new Error("Invalid report JSON structure returned from Gemini.");
     }
+
+    // Format a readable text version for the email body
+    const attorneyReport = [
+      `RRU™ REAL ESTATE MATCHMAKER — CONFIDENTIAL BUYER PROFILE`,
+      `Generated: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `PROFILE DECISION: ${structuredData.readinessBand || "REVIEW REQUIRED"}`,
+      `READINESS SCORE: ${structuredData.score ?? "N/A"} / 100  |  PRIORITY: ${structuredData.agentPriority || "NURTURE"}`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      ``,
+      `BUYER SUMMARY:`,
+      parsedReport.buyerSummary || "No summary provided.",
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `SECTION 1: BUYER IDENTIFICATION`,
+      `  Full Name:    ${structuredData.fullName || answers.fullName || "Not provided"}`,
+      `  Contact:      ${structuredData.contactInfo || answers.contactInfo || "Not provided"}`,
+      `  Language:     ${structuredData.clientLanguage || "English"}`,
+      ``,
+      `SECTION 2: PURCHASE GOALS`,
+      `  Goal:         ${structuredData.buyingGoal || answers.buyingGoal || "Not provided"}`,
+      `  Location:     ${structuredData.location || answers.location || "Not provided"}`,
+      `  Must-Haves:   ${structuredData.mustHaves || answers.mustHaves || "Not provided"}`,
+      ``,
+      `SECTION 3: FINANCIAL READINESS`,
+      `  Budget:       ${structuredData.budget || answers.budget || "Not provided"}`,
+      `  Financing:    ${structuredData.mortgageStatus || answers.mortgageStatus || "Not provided"}`,
+      `  Down Payment: ${structuredData.downPayment || answers.downPayment || "Not provided"}`,
+      ``,
+      `SECTION 4: TIMELINE & OBSTACLES`,
+      `  Timeline:     ${structuredData.timeline || answers.timeline || "Not provided"}`,
+      `  Obstacles:    ${structuredData.obstacles || answers.obstacles || "Not provided"}`,
+      ``,
+      `SECTION 5: AGENT RECOMMENDATION`,
+      `  Next Step:    ${structuredData.recommendedNextStep || "Review Profile"}`,
+    ].join("\n");
+
+    return new Response(
+      JSON.stringify({ structuredData, attorneyReport }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+  } catch (error: any) {
+    console.error("[Report API Error Critical]:", error.message);
+    return new Response(
+      JSON.stringify({ error: error.message || "Failed to generate report structure." }), 
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
   }
-
-  const computedScore = SCORE_CATEGORY_KEYS.reduce((sum, c) => sum + categoryScores[c], 0);
-  if (Number(sd.score) !== computedScore) {
-    console.warn(`[api/generate-report] Score corrected — model returned ${sd.score}, server computed ${computedScore}.`);
-  }
-  sd.score = computedScore;
-
-  // ── Derived labels — always server-computed, never trusted from the model
-  const band = readinessBand(computedScore);
-  sd.readinessBand = band.label;
-  sd.agentPriority = band.agentPriority;
-  sd.financingReadiness = financingReadinessLabel(categoryScores.financingStatus);
-  sd.motivationIndex = motivationIndexLabel(categoryScores.motivation);
-  sd.buyerMode = mode;
-
-  // clientLanguage: trust the persisted code from the intake flow over
-  // whatever the model guessed, since it's the language actually recorded
-  // turn-by-turn by /api/evaluate rather than inferred after the fact.
-  const persistedLanguageCode = String(answers.preferredLanguage || "");
-  sd.clientLanguage = isSupportedLanguageCode(persistedLanguageCode)
-    ? languageByCode(persistedLanguageCode).label
-    : (typeof sd.clientLanguage === "string" && sd.clientLanguage.trim().length > 0 ? sd.clientLanguage : "English");
-
-  // ── Risk flags — recomputed deterministically from raw answers
-  const computedFlags = computeRiskFlags(answers, categoryScores);
-  sd.riskFlags = computedFlags.length > 0 ? computedFlags : ["None identified."];
-
-  // ── Property match — recomputed from must-haves + goal text
-  sd.propertyMatch = derivePropertyMatch(String(answers.mustHaves || ""), buyingGoal);
-
-  // ── Recommended next step — deterministic mapping off the validated band
-  //    and financing readiness, so it can never contradict the score.
-  const hasMissingPreapproval = computedFlags.some((f) => f.startsWith("MISSING PREAPPROVAL"));
-  const hasCreditUnknown = computedFlags.some((f) => f.startsWith("CREDIT UNKNOWN"));
-  let nextStep: string;
-  if (computedScore < 40) {
-    nextStep = "Follow Up in 90 Days";
-  } else if (hasCreditUnknown && categoryScores.financingStatus <= 7) {
-    nextStep = "Needs Credit Counseling";
-  } else if (hasMissingPreapproval) {
-    nextStep = "Refer to Mortgage Broker";
-  } else if (computedScore >= 70) {
-    nextStep = "Schedule Showing";
-  } else {
-    nextStep = "Request Documentation";
-  }
-  sd.recommendedNextStep = nextStep;
-
-  // ── RISK_FLAG_TYPES is exported for downstream consumers (e.g. the
-  //    dashboard) that want to render a fixed-order checklist; expose it
-  //    alongside the computed flags without altering scoring.
-  sd.riskFlagTaxonomy = RISK_FLAG_TYPES;
-
-  res.status(200).json(parsed);
 }
