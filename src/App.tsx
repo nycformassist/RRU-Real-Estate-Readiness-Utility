@@ -40,58 +40,64 @@ const INTAKE_QUESTIONS = [
     phase: 1,
     field: "fullName",
     question:
-      "Welcome to the RRU™ Real Estate Matchmaker. To get started, what is your full name, phone number, and email address?",
+      "Welcome to the RRU™ Real Estate Matchmaker. I will guide you through a brief buyer qualification interview. To get started, what is your **full name**?",
   },
   {
     phase: 2,
+    field: "contactInfo",
+    question:
+      "Thank you. What is the best **phone number and/or email address** to reach you?",
+  },
+  {
+    phase: 3,
     field: "buyingGoal",
     question:
       "Are you looking to buy a primary home, sell, invest, relocate, or looking for commercial property?",
   },
   {
-    phase: 3,
+    phase: 4,
     field: "location",
     question:
       "What preferred cities, neighborhoods, or ZIP codes are you targeting? (Or are you looking for best schools, easy commute, etc.?)",
   },
   {
-    phase: 4,
+    phase: 5,
     field: "budget",
     question:
       "What is your target maximum price range? Will this be cash or mortgage?",
   },
   {
-    phase: 5,
+    phase: 6,
     field: "mortgageStatus",
     question:
       "Have you been preapproved by a lender yet? (VA, FHA, Conventional, etc.)",
   },
   {
-    phase: 6,
+    phase: 7,
     field: "downPayment",
     question:
       "Roughly how much are you planning to put towards a down payment? (5%, 10%, 20%, Gift/Grant?)",
   },
   {
-    phase: 7,
+    phase: 8,
     field: "timeline",
     question:
       "If the perfect property appeared tomorrow, what is your ideal timeline to close? (Immediately, 30-90 days, next year?)",
   },
   {
-    phase: 8,
+    phase: 9,
     field: "currentHome",
     question:
       "What is your current living situation? (Renting, own a home you need to sell, lease ending?)",
   },
   {
-    phase: 9,
+    phase: 10,
     field: "mustHaves",
     question:
       "What are your absolute 'must-haves'? (Bedrooms, yard, school district, etc.)",
   },
   {
-    phase: 10,
+    phase: 11,
     field: "obstacles",
     question:
       "Finally, what is the biggest obstacle preventing you from buying today? (Saving, credit, finding property, interest rates?)",
@@ -100,7 +106,8 @@ const INTAKE_QUESTIONS = [
 
 // ── All required fields for submission guard ─────────────────────────────────
 const ALL_FIELDS: { key: string; label: string; critical: boolean }[] = [
-  { key: "fullName",      label: "Identity & Contact",   critical: true  },
+  { key: "fullName",      label: "Identity",             critical: true  },
+  { key: "contactInfo",   label: "Contact Information",  critical: true  },
   { key: "buyingGoal",    label: "Buying Goal",          critical: true  },
   { key: "location",      label: "Target Location",      critical: false },
   { key: "budget",        label: "Budget",               critical: false },
@@ -127,8 +134,11 @@ function validateInputPreflight(phase: number, text: string): string | null {
   }
 
   if (phase === 2) {
-    // Phase 2 is now buyingGoal, so we removed the strict phone/email regex check from here 
-    // since we ask for contact info in Phase 1 now according to the blueprint.
+    const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
+    const digitCount = (t.match(/\d/g) || []).length;
+    if (!hasEmail && digitCount < 7) {
+      return "Please provide a valid phone number (at least 7 digits) or a valid email address.";
+    }
   }
 
   return null;
@@ -138,7 +148,7 @@ function validateInputPreflight(phase: number, text: string): string | null {
 function buildStructuredDataFallback(answers: Record<string, string>): StructuredData {
   return {
     fullName:       answers.fullName       || "",
-    contactInfo:    answers.fullName       || "", // Merged in Phase 1
+    contactInfo:    answers.contactInfo    || "",
     buyingGoal:     answers.buyingGoal     || "",
     location:       answers.location       || "",
     budget:         answers.budget         || "",
@@ -174,7 +184,8 @@ function buildFallbackReport(answers: Record<string, string>): string {
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "SECTION 1: BUYER IDENTIFICATION",
-    `  Full Name/Contact: ${answers.fullName || "Not provided"}`,
+    `  Full Name:    ${answers.fullName    || "Not provided"}`,
+    `  Contact:      ${answers.contactInfo || "Not provided"}`,
     "",
     "SECTION 2: PURCHASE GOALS",
     `  Goal:         ${answers.buyingGoal  || "Not provided"}`,
@@ -313,7 +324,7 @@ export default function App() {
           setTimeout(() => {
             addMessage(
               "system",
-              "All 10 phases of the buyer qualification interview are complete. Please review your answers below. You may edit any field before submitting. When ready, click **Submit Profile** to send your information to our real estate team."
+              "All 11 phases of the buyer qualification interview are complete. Please review your answers below. You may edit any field before submitting. When ready, click **Submit Profile** to send your information to our real estate team."
             );
           }, 600);
         }
@@ -402,15 +413,16 @@ export default function App() {
 
   const roadmapSteps = [
     { title: "Identity",     phase: 1 },
-    { title: "Buying Goal",  phase: 2 },
-    { title: "Location",     phase: 3 },
-    { title: "Budget",       phase: 4 },
-    { title: "Financing",    phase: 5 },
-    { title: "Down Payment", phase: 6 },
-    { title: "Timeline",     phase: 7 },
-    { title: "Current Home", phase: 8 },
-    { title: "Must-Haves",   phase: 9 },
-    { title: "Obstacles",    phase: 10 },
+    { title: "Contact",      phase: 2 },
+    { title: "Buying Goal",  phase: 3 },
+    { title: "Location",     phase: 4 },
+    { title: "Budget",       phase: 5 },
+    { title: "Financing",    phase: 6 },
+    { title: "Down Payment", phase: 7 },
+    { title: "Timeline",     phase: 8 },
+    { title: "Current Home", phase: 9 },
+    { title: "Must-Haves",   phase: 10 },
+    { title: "Obstacles",    phase: 11 },
   ];
 
   const progressPct =
@@ -445,7 +457,7 @@ export default function App() {
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-0.5">
           <div className="text-[10px] font-bold text-slate-600 uppercase px-2 py-2 tracking-widest">
-            10-Phase Protocol
+            11-Phase Protocol
           </div>
           {roadmapSteps.map((step) => {
             const isActive    = currentPhase === step.phase;

@@ -31,7 +31,7 @@ export function buildEvaluateSystemInstruction(phase: number, mode: string, lang
 You are the intelligence engine for the RRU™ (Real Estate Readiness Utility), an elite AI Buyer Qualification & Readiness Engine.
 You are NOT answering questions. You are qualifying people to determine readiness before a Realtor wastes time.
 
-CURRENT PROTOCOL PHASE: ${phase} of 10
+CURRENT PROTOCOL PHASE: ${phase} of 11
 BUYER MODE: ${mode}
 
 BEHAVIORAL GUIDELINES & PUSHBACK PROTOCOL:
@@ -51,7 +51,7 @@ You must return a valid JSON object matching the provided schema.
 // System instruction for final readiness report generation
 export function buildReportSystemInstruction(mode: string): string {
   return `
-You are the senior underwriting intelligence for the RRU™ (Real Estate Readiness Utility). Analyze all 10 phases of collected buyer intake data and generate an institutional-grade buyer evaluation report.
+You are the senior underwriting intelligence for the RRU™ (Real Estate Readiness Utility). Analyze all 11 phases of collected buyer intake data and generate an institutional-grade buyer evaluation report.
 
 SCORING MODEL (100-Point Weighted Scale):
 - Financial Readiness (Weight: 25)
