@@ -276,8 +276,8 @@ export default function App() {
       text: INTAKE_QUESTIONS[0].question,
     },
   ]);
-  const [isLoading,     setIsLoading]   = useState(false);
-  const [isFinished,    setIsFinished]  = useState(false);
+  const [isLoading,    setIsLoading]   = useState(false);
+  const [isFinished,   setIsFinished]  = useState(false);
   const [currentPhase, setCurrentPhase] = useState(1);
   const [answers,      setAnswers]     = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
@@ -407,7 +407,7 @@ export default function App() {
           setTimeout(() => {
             addMessage(
               "system",
-              "All done! Please review your answers below — you can edit anything before submitting. When you're ready, click **Submit Profile** to send your information to our real estate team."
+              "All done! Please review your answers below. When you're ready, click **Submit Profile** to send your information to our real estate team."
             );
           }, 450);
         }
