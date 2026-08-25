@@ -460,6 +460,96 @@ export function readinessBand(score: number): {
   return { label: "Educational Nurture", nextStep: "Not Yet Actionable", agentPriority: "D" };
 }
 
+/**
+ * Assembles the full agent-facing report as a deterministic template from
+ * already-validated fields, rather than asking the model to format the
+ * whole document itself. This is deliberately NOT "let the model write a
+ * nice report" — every number and label here has already been computed
+ * and verified server-side in api/generate-report.ts (rigid score math,
+ * recomputed risk flags, recomputed property match, etc.), so the model
+ * has exactly one job left: the AI BUYER SUMMARY narrative paragraph,
+ * passed in as `aiNarrative`. Keeping formatting out of the model's hands
+ * means the report layout can never drift, omit a section, or disagree
+ * with the validated data — which a free-form model-generated report
+ * always risks doing turn to turn.
+ */
+export function buildFullBuyerReport(
+  sd: Record<string, unknown>,
+  answers: Record<string, unknown>,
+  aiNarrative: string
+): string {
+  const str = (v: unknown, fallback = "Not provided"): string => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s.length > 0 ? s : fallback;
+  };
+  const riskFlags = Array.isArray(sd.riskFlags) && sd.riskFlags.length > 0
+    ? (sd.riskFlags as string[])
+    : ["None identified."];
+  const propertyMatch = Array.isArray(sd.propertyMatch) && sd.propertyMatch.length > 0
+    ? (sd.propertyMatch as string[]).join(", ")
+    : "Unspecified";
+  const generatedAt = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
+  const buyingPowerParts = [
+    str(sd.estimatedBudget ?? answers.budget, ""),
+    str(sd.estimatedDownPayment ?? answers.downPayment, ""),
+    str(sd.loanRange, ""),
+  ].filter((p) => p.length > 0);
+  const buyingPower = buyingPowerParts.length > 0 ? buyingPowerParts.join("; ") : "Not provided";
+
+  return [
+    "RRU™ AI BUYER QUALIFICATION & READINESS ENGINE",
+    `Generated: ${generatedAt} ET`,
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    `BUYER READINESS SCORE: ${sd.score ?? "N/A"} / 100  |  TIER: ${str(sd.readinessBand, "Pending Review")}`,
+    `AGENT PRIORITY SCORE:  ${str(sd.agentPriority, "D")}`,
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "",
+    "AI BUYER SUMMARY:",
+    aiNarrative,
+    "",
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "QUALIFICATION METRICS:",
+    `  Financing Readiness:    ${str(sd.financingReadiness, "Unknown")}`,
+    `  Motivation Index:       ${str(sd.motivationIndex, "Unknown")}`,
+    `  Purchase Timeline:      ${str(sd.purchaseTimeline ?? answers.timeline, "Unknown")}`,
+    `  Buying Power:           ${buyingPower}`,
+    `  Property Match:         ${propertyMatch}`,
+    "",
+    "DECISION RISK FLAGS:",
+    ...riskFlags.map((f) => `  - ${f}`),
+    "",
+    "RECOMMENDED NEXT STEP:",
+    `  >>> ${str(sd.recommendedNextStep, "Follow Up in 90 Days")} <<<`,
+    "",
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "RAW INTAKE DATA (CLIENT UNEDITED RESPONSES)",
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "SECTION 1: BUYER IDENTIFICATION",
+    `  Full Name:    ${str(sd.fullName ?? answers.fullName)}`,
+    `  Contact:      ${str(sd.contactInfo ?? answers.contactInfo)}`,
+    "",
+    "SECTION 2: PURCHASE GOALS",
+    `  Goal:         ${str(sd.buyingGoal ?? answers.buyingGoal)}`,
+    `  Location:     ${str(sd.location ?? answers.location)}`,
+    `  Must-Haves:   ${str(sd.mustHaves ?? answers.mustHaves)}`,
+    "",
+    "SECTION 3: FINANCIAL READINESS",
+    `  Budget:       ${str(sd.budget ?? answers.budget)}`,
+    `  Financing:    ${str(sd.mortgageStatus ?? answers.mortgageStatus)}`,
+    `  Down Payment: ${str(sd.downPayment ?? answers.downPayment)}`,
+    "",
+    "SECTION 4: TIMELINE, HOUSING & OBSTACLES",
+    `  Timeline:     ${str(sd.timeline ?? answers.timeline)}`,
+    `  Current Home: ${str(sd.currentHomeSituation ?? answers.currentHomeSituation)}`,
+    `  Obstacles:    ${str(sd.obstacles ?? answers.obstacles)}`,
+  ].join("\n");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // System-instruction builders
 // ─────────────────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import {
   financingReadinessLabel,
   motivationIndexLabel,
   readinessBand,
+  buildFullBuyerReport,
   RISK_FLAG_TYPES,
   languageByCode,
   isSupportedLanguageCode,
@@ -237,6 +238,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   //    dashboard) that want to render a fixed-order checklist; expose it
   //    alongside the computed flags without altering scoring.
   sd.riskFlagTaxonomy = RISK_FLAG_TYPES;
+
+  // ── Full report assembly ────────────────────────────────────────────
+  // The model's "buyerSummary" up to this point is just the short AI
+  // narrative paragraph — preserve it under its own key, then replace
+  // "buyerSummary" with the full deterministic report (score, tier,
+  // qualification metrics, risk flags, next step, and the complete raw
+  // intake data) via buildFullBuyerReport(). This is what actually gets
+  // emailed to the agent in api/intake.ts and shown in App.tsx's
+  // fallback path — a 3-5 sentence blurb alone isn't enough for an agent
+  // to act on; the full report with raw intake data is.
+  const aiNarrative =
+    typeof parsed.buyerSummary === "string" && parsed.buyerSummary.trim().length > 0
+      ? parsed.buyerSummary.trim()
+      : "Summary unavailable — review raw intake data below.";
+  sd.aiNarrative = aiNarrative;
+  parsed.buyerSummary = buildFullBuyerReport(sd, answers, aiNarrative);
 
   res.status(200).json(parsed);
 }
