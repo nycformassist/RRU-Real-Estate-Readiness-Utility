@@ -9,132 +9,169 @@ export type Message = {
 
 export type SubmitStatus = "idle" | "submitting" | "success" | "error";
 
+// Matches the actual output of /api/generate-report (see lib/constants.ts
+// buildReportSystemInstruction + api/generate-report.ts's server-side
+// validation). This used to drift from the backend's real schema — keep
+// it in sync whenever generate-report.ts's structuredData shape changes.
 export type StructuredData = {
   fullName: string;
   contactInfo: string;
   buyingGoal: string;
+  buyerMode?: string;
+  buyerModeLabel?: string;
+  clientLanguage?: string;
   location: string;
   budget: string;
   mortgageStatus: string;
   downPayment: string;
   timeline: string;
-  currentHome: string;
+  currentHomeSituation?: string;
   mustHaves: string;
   obstacles: string;
+
+  scoreFinancialReadiness?: number;
+  scoreMotivation?: number;
+  scoreTimeline?: number;
+  scorePropertyClarity?: number;
+  scoreFinancingStatus?: number;
+  scoreDecisionAuthority?: number;
+  scoreDocumentation?: number;
   score?: number;
-  readinessBand?: string;
-  financingReadiness?: string;
-  buyerMotivationIndex?: string;
-  purchaseTimeline?: string;
-  buyingPower?: string;
-  propertyMatch?: string;
+
+  readinessBand?: "Elite Buyer" | "Ready Buyer" | "Qualified" | "Warm Lead" | "Long-Term Prospect" | "Educational Nurture";
   agentPriority?: "A+" | "A" | "B" | "C" | "D";
-  redFlags?: string[];
+  financingReadiness?: "Excellent" | "Good" | "Needs Work" | "Unknown";
+  motivationIndex?: "Very High" | "High" | "Moderate" | "Low" | "Shopping Only";
+  purchaseTimeline?: string;
+
+  propertyMatch?: string[];
+  estimatedBudget?: string;
+  estimatedDownPayment?: string;
+  estimatedMonthlyPayment?: string;
+  loanRange?: string;
+
   recommendedNextStep?: string;
+  riskFlags?: string[];
   submittedAt?: string;
 };
 
 // ── Intake question definitions ──────────────────────────────────────────────
+// 11 phases, one topic at a time — no bundled "name + phone + email"
+// opener. Field keys line up 1:1 with lib/constants.ts's PHASE_RULES and
+// with what api/generate-report.ts reads off `answers`.
 const INTAKE_QUESTIONS = [
   {
     phase: 1,
     field: "fullName",
     question:
-      "Welcome to the RRU™ Real Estate Matchmaker. I will guide you through a brief buyer qualification interview. To get started, what is your **full name**?",
+      "Welcome to the RRU™ Real Estate Matchmaker! I'll ask a few quick questions to match you with the right properties and agent. To start — what's your **name**?",
   },
   {
     phase: 2,
     field: "contactInfo",
     question:
-      "Thank you. What is the best **phone number and/or email address** to reach you?",
+      "Thanks! What's the best **phone number and/or email** to reach you at?",
   },
   {
     phase: 3,
     field: "buyingGoal",
     question:
-      "Are you looking to buy a primary home, sell, invest, relocate, or looking for commercial property?",
+      "Are you looking to buy a primary home, invest, relocate, purchase a second home, or explore commercial property — or just exploring the market for now?",
   },
   {
     phase: 4,
     field: "location",
     question:
-      "What preferred cities, neighborhoods, or ZIP codes are you targeting? (Or are you looking for best schools, easy commute, etc.?)",
+      "Got it. What **cities, neighborhoods, or zip codes** are you primarily interested in?",
   },
   {
     phase: 5,
     field: "budget",
     question:
-      "What is your target maximum price range? Will this be cash or mortgage?",
+      "What's your approximate **target price or budget range**?",
   },
   {
     phase: 6,
     field: "mortgageStatus",
     question:
-      "Have you been preapproved by a lender yet? (VA, FHA, Conventional, etc.)",
+      "Have you already spoken to a lender and been **pre-approved**, or will you be purchasing with cash?",
   },
   {
     phase: 7,
     field: "downPayment",
     question:
-      "Roughly how much are you planning to put towards a down payment? (5%, 10%, 20%, Gift/Grant?)",
+      "Roughly how much are you planning to put towards a **down payment**?",
   },
   {
     phase: 8,
     field: "timeline",
     question:
-      "If the perfect property appeared tomorrow, what is your ideal timeline to close? (Immediately, 30-90 days, next year?)",
+      "What's your **ideal timeline** to move or close? (e.g., immediately, 3 months, next year)",
   },
   {
     phase: 9,
-    field: "currentHome",
+    field: "currentHomeSituation",
     question:
-      "What is your current living situation? (Renting, own a home you need to sell, lease ending?)",
+      "What's your current housing situation — **renting, own your home, living with family**, a lease ending soon, or do you need to sell your current home first?",
   },
   {
     phase: 10,
     field: "mustHaves",
     question:
-      "What are your absolute 'must-haves'? (Bedrooms, yard, school district, etc.)",
+      "What are your **must-haves** for a new property? (e.g., bedrooms, bathrooms, yard, parking, school district)",
   },
   {
     phase: 11,
     field: "obstacles",
     question:
-      "Finally, what is the biggest obstacle preventing you from buying today? (Saving, credit, finding property, interest rates?)",
+      "Last one — is anything **holding you back** right now, like credit concerns, saving for a down payment, finding the right property, or needing to sell your current home first?",
   },
 ];
 
-// ── All required fields for submission guard ─────────────────────────────────
+// ── All fields for submission guard ──────────────────────────────────────────
 const ALL_FIELDS: { key: string; label: string; critical: boolean }[] = [
-  { key: "fullName",      label: "Identity",             critical: true  },
-  { key: "contactInfo",   label: "Contact Information",  critical: true  },
-  { key: "buyingGoal",    label: "Buying Goal",          critical: true  },
-  { key: "location",      label: "Target Location",      critical: false },
-  { key: "budget",        label: "Budget",               critical: false },
-  { key: "mortgageStatus",label: "Financing Status",     critical: false },
-  { key: "downPayment",   label: "Down Payment",         critical: false },
-  { key: "timeline",      label: "Timeline",             critical: false },
-  { key: "currentHome",   label: "Current Home Status",  critical: false },
-  { key: "mustHaves",     label: "Must-Haves",           critical: false },
-  { key: "obstacles",     label: "Obstacles",            critical: false },
+  { key: "fullName",            label: "Full Name",              critical: true  },
+  { key: "contactInfo",         label: "Contact Information",    critical: true  },
+  { key: "buyingGoal",          label: "Buying Goal",            critical: true  },
+  { key: "location",            label: "Target Location",        critical: false },
+  { key: "budget",              label: "Target Budget",          critical: false },
+  { key: "mortgageStatus",      label: "Financing Status",       critical: false },
+  { key: "downPayment",         label: "Down Payment",           critical: false },
+  { key: "timeline",            label: "Timeline",               critical: false },
+  { key: "currentHomeSituation", label: "Current Home Situation", critical: false },
+  { key: "mustHaves",           label: "Must-Haves",             critical: false },
+  { key: "obstacles",           label: "Obstacles & Concerns",   critical: false },
 ];
 
+// ── Defensive boolean coercion ───────────────────────────────────────────────
+// Mirrors the same helper in api/evaluate.ts. The backend guarantees real
+// booleans via EVALUATE_RESPONSE_SCHEMA, but this stays as a second line
+// of defense against transport quirks or a future API change.
+function toBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return Boolean(value);
+}
+
 // ── Client-side preflight validation ─────────────────────────────────────────
+// Deliberately light-touch: only Name and Contact get a hard local check
+// (they have an unambiguous shape). Every other phase's "did they actually
+// answer" judgment is left to /api/evaluate, which has the real phase
+// rule and pushback script — a client-side regex can't tell "I'm just
+// looking" (a valid Phase 3 answer) from a true non-answer.
 function validateInputPreflight(phase: number, text: string): string | null {
   const t = text.trim();
   if (t.length === 0) return "A response is required before continuing.";
-  if (t.length < 2)   return "Your response is too brief. Please provide more detail.";
   if (t.length > 4000) return "Your response exceeds the character limit. Please summarize.";
 
   if (phase === 1) {
-    const words = t.split(/\s+/).filter((w) => w.length > 0);
-    if (words.length < 2) {
-      return "Please provide both your first and last name.";
+    if (t.length < 2) {
+      return "Please share at least your first name so we know what to call you.";
     }
   }
 
   if (phase === 2) {
-    const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
+    const hasEmail = /[^\s@]+@[^\s@]+\.[^\s@]+/.test(t);
     const digitCount = (t.match(/\d/g) || []).length;
     if (!hasEmail && digitCount < 7) {
       return "Please provide a valid phone number (at least 7 digits) or a valid email address.";
@@ -144,66 +181,66 @@ function validateInputPreflight(phase: number, text: string): string | null {
   return null;
 }
 
-// ── Fallback data builders ────────────────────────────────────────────────────
+// ── Fallback data builders (used only if /api/generate-report is unreachable) ─
 function buildStructuredDataFallback(answers: Record<string, string>): StructuredData {
   return {
-    fullName:       answers.fullName       || "",
-    contactInfo:    answers.contactInfo    || "",
-    buyingGoal:     answers.buyingGoal     || "",
-    location:       answers.location       || "",
-    budget:         answers.budget         || "",
-    mortgageStatus: answers.mortgageStatus || "",
-    downPayment:    answers.downPayment    || "",
-    timeline:       answers.timeline       || "",
-    currentHome:    answers.currentHome    || "",
-    mustHaves:      answers.mustHaves      || "",
-    obstacles:      answers.obstacles      || "",
-    score:          0,
-    readinessBand:  "Manual Review",
-    agentPriority:  "D",
-    redFlags:       ["SYSTEM: Manual agent review and scoring required"],
-    submittedAt:    new Date().toISOString(),
+    fullName:             answers.fullName             || "",
+    contactInfo:          answers.contactInfo          || "",
+    buyingGoal:           answers.buyingGoal           || "",
+    location:             answers.location             || "",
+    budget:               answers.budget               || "",
+    mortgageStatus:       answers.mortgageStatus       || "",
+    downPayment:          answers.downPayment          || "",
+    timeline:             answers.timeline             || "",
+    currentHomeSituation: answers.currentHomeSituation || "",
+    mustHaves:            answers.mustHaves            || "",
+    obstacles:            answers.obstacles            || "",
+    score: 0,
+    readinessBand: "Educational Nurture",
+    agentPriority: "D",
+    financingReadiness: "Unknown",
+    motivationIndex: "Shopping Only",
+    riskFlags: ["SYSTEM: Manual agent review and scoring required — report generation failed."],
+    recommendedNextStep: "Follow Up in 90 Days",
+    submittedAt: new Date().toISOString(),
   };
 }
 
-function buildFallbackReport(answers: Record<string, string>): string {
+function buildFallbackBuyerSummary(answers: Record<string, string>): string {
   return [
     "RRU™ REAL ESTATE MATCHMAKER — CONFIDENTIAL BUYER PROFILE",
     `Generated: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-    "PROFILE DECISION: MANUAL REVIEW REQUIRED",
-    "READINESS SCORE: N/A  |  PRIORITY: D",
+    "PROFILE STATUS: MANUAL REVIEW REQUIRED",
+    "BUYER READINESS SCORE: N/A / 100  |  AGENT PRIORITY: D",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "",
-    "NOTE: Raw intake data is preserved below.",
-    "Manual agent review and scoring required before matching.",
-    "",
-    "RED FLAGS:",
-    "- SYSTEM ERROR: Score not calculated. Do not dispatch without manual review.",
+    "NOTE: Automated scoring failed. Raw intake data is preserved below for",
+    "manual agent review before any matching or outreach.",
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "SECTION 1: BUYER IDENTIFICATION",
-    `  Full Name:    ${answers.fullName    || "Not provided"}`,
-    `  Contact:      ${answers.contactInfo || "Not provided"}`,
+    `  Full Name:    ${answers.fullName             || "Not provided"}`,
+    `  Contact:      ${answers.contactInfo          || "Not provided"}`,
     "",
     "SECTION 2: PURCHASE GOALS",
-    `  Goal:         ${answers.buyingGoal  || "Not provided"}`,
-    `  Location:     ${answers.location    || "Not provided"}`,
-    `  Must-Haves:   ${answers.mustHaves   || "Not provided"}`,
+    `  Goal:         ${answers.buyingGoal           || "Not provided"}`,
+    `  Location:     ${answers.location             || "Not provided"}`,
+    `  Must-Haves:   ${answers.mustHaves            || "Not provided"}`,
     "",
     "SECTION 3: FINANCIAL READINESS",
-    `  Budget:       ${answers.budget         || "Not provided"}`,
-    `  Financing:    ${answers.mortgageStatus || "Not provided"}`,
-    `  Down Payment: ${answers.downPayment    || "Not provided"}`,
+    `  Budget:       ${answers.budget               || "Not provided"}`,
+    `  Financing:    ${answers.mortgageStatus       || "Not provided"}`,
+    `  Down Payment: ${answers.downPayment          || "Not provided"}`,
     "",
-    "SECTION 4: TIMELINE & OBSTACLES",
-    `  Timeline:     ${answers.timeline    || "Not provided"}`,
-    `  Current Home: ${answers.currentHome || "Not provided"}`,
-    `  Obstacles:    ${answers.obstacles   || "Not provided"}`,
+    "SECTION 4: TIMELINE, HOUSING & OBSTACLES",
+    `  Timeline:     ${answers.timeline             || "Not provided"}`,
+    `  Current Home: ${answers.currentHomeSituation || "Not provided"}`,
+    `  Obstacles:    ${answers.obstacles            || "Not provided"}`,
     "",
     "SECTION 5: AGENT RECOMMENDATION",
-    "  Decision: NURTURE / REVIEW",
+    "  Recommended Next Step: Follow Up in 90 Days (pending manual review)",
     "  Agent must manually evaluate this profile before making any representation decisions.",
   ].join("\n");
 }
@@ -242,9 +279,16 @@ export default function App() {
   const [isLoading,     setIsLoading]   = useState(false);
   const [isFinished,    setIsFinished]  = useState(false);
   const [currentPhase, setCurrentPhase] = useState(1);
-  const [answers,       setAnswers]     = useState<Record<string, string>>({});
+  const [answers,      setAnswers]     = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
   const [finalScore,   setFinalScore]  = useState<StructuredData | null>(null);
+  // Tracks consecutive *local* preflight rejections for the current phase.
+  // If the client-side regex/length checks reject the same phase 2+ times
+  // in a row, we stop trusting them and send straight to the AI instead —
+  // this is the "never permanently trapped" escape hatch. Resets to 0
+  // whenever the phase advances.
+  const [preflightFailCount, setPreflightFailCount] = useState(0);
+  const PREFLIGHT_BYPASS_THRESHOLD = 2;
 
   const addMessage = (role: Message["role"], text: string) => {
     setMessages((prev) => [
@@ -260,9 +304,17 @@ export default function App() {
     addMessage("user", text);
 
     const preflightError = validateInputPreflight(currentPhase, text);
-    if (preflightError) {
+    if (preflightError && preflightFailCount < PREFLIGHT_BYPASS_THRESHOLD) {
+      setPreflightFailCount((n) => n + 1);
       addMessage("model", preflightError);
       return;
+    }
+    if (preflightError) {
+      // Bypass: local validation rejected this phase twice in a row.
+      // Stop trusting the lightweight client-side check and let
+      // /api/evaluate decide — it has the full phase rule and pushback
+      // script, so it can recognize answers the regex can't.
+      console.warn(`[App] Preflight bypassed for phase ${currentPhase} after ${preflightFailCount} local rejections.`);
     }
 
     setIsLoading(true);
@@ -284,49 +336,44 @@ export default function App() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      // Add the AI's brief acknowledgment to the chat
       addMessage(
         "model",
-        data.agentResponse || "Your response does not meet the minimum requirements. Please clarify."
+        data.agentResponse || "Your response doesn't quite meet what's needed for this step — could you share a bit more?"
       );
 
-      let dataWasValid = false;
+      const isValid = toBool(data.isValid);
+      const hasExtractedData = typeof data.extractedData === "string" && data.extractedData.trim().length > 0;
+      const inconsistencyDetected = toBool(data.inconsistencyDetected);
+      const followUpTriggered = toBool(data.followUpTriggered);
 
-      // Extract and save the data if valid
-      if ((data.isValid === true || data.isValid === "true") && data.extractedData) {
-        dataWasValid = true;
+      // Mirrors the server-side computation in api/evaluate.ts: advance if
+      // the server explicitly says so, OR if the answer was valid with
+      // real extracted data and neither hold-back flag is set.
+      const shouldAdvance =
+        toBool(data.advancePhase) ||
+        (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
+
+      if (isValid && hasExtractedData) {
         setAnswers((prev) => ({
           ...prev,
           [currentQuestion.field]: String(data.extractedData).trim(),
         }));
       }
 
-      // Bulletproof advancement logic
-      const shouldAdvance = 
-        data.advancePhase === true || 
-        data.advancePhase === "true" || 
-        dataWasValid || 
-        Boolean(data.extractedData);
-
       if (shouldAdvance) {
+        setPreflightFailCount(0);
         const nextPhase = currentPhase + 1;
 
         if (nextPhase <= INTAKE_QUESTIONS.length) {
           setCurrentPhase(nextPhase);
-          
-          // THE FIX: Restore the frontend asking your official question
-          setTimeout(() => {
-            addMessage("model", INTAKE_QUESTIONS[nextPhase - 1].question);
-          }, 600);
-          
         } else {
           setCurrentPhase(INTAKE_QUESTIONS.length + 1);
           setTimeout(() => {
             addMessage(
               "system",
-              "All 11 phases of the buyer qualification interview are complete. Please review your answers below. You may edit any field before submitting. When ready, click **Submit Profile** to send your information to our real estate team."
+              "All done! Please review your answers below — you can edit anything before submitting. When you're ready, click **Submit Profile** to send your information to our real estate team."
             );
-          }, 600);
+          }, 350);
         }
       }
     } catch (err) {
@@ -363,7 +410,7 @@ export default function App() {
 
     try {
       let structuredData: StructuredData;
-      let attorneyReport: string;
+      let buyerSummary: string;
 
       try {
         const reportRes = await fetch("/api/generate-report", {
@@ -375,19 +422,19 @@ export default function App() {
         if (!reportRes.ok) throw new Error(`Report API returned ${reportRes.status}`);
         const generated = await reportRes.json();
 
-        structuredData  = { ...generated.structuredData, submittedAt: new Date().toISOString() };
-        attorneyReport  = generated.attorneyReport;
+        structuredData = { ...generated.structuredData, submittedAt: new Date().toISOString() };
+        buyerSummary   = generated.buyerSummary;
         setFinalScore(structuredData);
       } catch (reportErr) {
         structuredData = buildStructuredDataFallback(answers);
-        attorneyReport = buildFallbackReport(answers);
+        buyerSummary   = buildFallbackBuyerSummary(answers);
         setFinalScore(structuredData);
       }
 
       const intakeRes = await fetch("/api/intake", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ structuredData, attorneyReport }),
+        body:    JSON.stringify({ structuredData, buyerSummary }),
       });
 
       const intakeData = await intakeRes.json();
@@ -412,17 +459,17 @@ export default function App() {
   };
 
   const roadmapSteps = [
-    { title: "Identity",     phase: 1 },
-    { title: "Contact",      phase: 2 },
-    { title: "Buying Goal",  phase: 3 },
-    { title: "Location",     phase: 4 },
-    { title: "Budget",       phase: 5 },
-    { title: "Financing",    phase: 6 },
-    { title: "Down Payment", phase: 7 },
-    { title: "Timeline",     phase: 8 },
-    { title: "Current Home", phase: 9 },
-    { title: "Must-Haves",   phase: 10 },
-    { title: "Obstacles",    phase: 11 },
+    { title: "Name",           phase: 1 },
+    { title: "Contact",        phase: 2 },
+    { title: "Buying Goal",    phase: 3 },
+    { title: "Location",       phase: 4 },
+    { title: "Budget",         phase: 5 },
+    { title: "Financing",      phase: 6 },
+    { title: "Down Payment",   phase: 7 },
+    { title: "Timeline",       phase: 8 },
+    { title: "Current Home",   phase: 9 },
+    { title: "Must-Haves",     phase: 10 },
+    { title: "Obstacles",      phase: 11 },
   ];
 
   const progressPct =
@@ -430,12 +477,15 @@ export default function App() {
       ? 100
       : Math.round(((currentPhase - 1) / INTAKE_QUESTIONS.length) * 100);
 
-  const priorityTextColors: Record<string, string> = {
+  // Colored by Agent Priority (A+/A/B/C/D), matching the source spec's
+  // "who should be called first tomorrow morning" scale — not the old
+  // HOT/WARM/COLD/NURTURE legal-intake labels.
+  const agentPriorityColors: Record<string, string> = {
     "A+": "text-emerald-400",
-    "A":  "text-emerald-500",
-    "B":  "text-blue-400",
+    "A":  "text-emerald-400",
+    "B":  "text-sky-400",
     "C":  "text-amber-400",
-    "D":  "text-slate-500",
+    "D":  "text-slate-400",
   };
 
   return (
@@ -451,7 +501,7 @@ export default function App() {
             </h1>
           </div>
           <p className="text-[10px] text-slate-600 font-mono uppercase tracking-widest">
-            AI Qualification Engine
+            Buyer Qualification v1.0
           </p>
         </div>
 
@@ -493,17 +543,25 @@ export default function App() {
         {finalScore && (
           <div className="p-4 border-t border-slate-800 bg-slate-900/50 shrink-0">
             <div className="text-[10px] uppercase font-bold text-slate-500 mb-3 tracking-widest">
-              Buyer Readiness Score
+              Match Result
             </div>
             <div className="flex items-baseline gap-1 mb-1">
-              <span className={`text-3xl font-black ${priorityTextColors[finalScore.agentPriority || "D"]}`}>
+              <span className={`text-3xl font-black ${agentPriorityColors[finalScore.agentPriority || "D"]}`}>
                 {finalScore.score ?? "—"}
               </span>
               <span className="text-slate-600 text-sm font-mono">/100</span>
             </div>
-            <div className={`text-xs font-bold uppercase tracking-widest mb-3 ${priorityTextColors[finalScore.agentPriority || "D"]}`}>
-              Priority {finalScore.agentPriority || "D"} 
+            <div className={`text-xs font-bold uppercase tracking-widest mb-1 ${agentPriorityColors[finalScore.agentPriority || "D"]}`}>
+              {finalScore.agentPriority || "—"} Priority
             </div>
+            <div className="text-[11px] text-slate-500 mb-3">
+              {finalScore.readinessBand || "Pending review"}
+            </div>
+            {finalScore.recommendedNextStep && (
+              <div className="text-[10px] text-slate-500 border-t border-slate-800 pt-2">
+                Next: <span className="text-slate-300">{finalScore.recommendedNextStep}</span>
+              </div>
+            )}
           </div>
         )}
 
