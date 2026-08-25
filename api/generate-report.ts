@@ -36,7 +36,7 @@ ${JSON.stringify(answers, null, 2)}
       throw new Error("Invalid report JSON structure returned from Gemini.");
     }
 
-    // Format the precise RRU email dashboard report
+    // Format the precise RRU email dashboard report WITH raw intake data appended
     const attorneyReport = [
       `RRU™ AI BUYER QUALIFICATION & READINESS ENGINE`,
       `Generated: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
@@ -61,9 +61,30 @@ ${JSON.stringify(answers, null, 2)}
           ? structuredData.redFlags.map((flag: string) => `  - ${flag}`) 
           : ["  - None identified."]),
       ``,
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
       `RECOMMENDED NEXT STEP:`,
-      `  >>> ${structuredData.recommendedNextStep || "Review Profile"} <<<`
+      `  >>> ${structuredData.recommendedNextStep || "Review Profile"} <<<`,
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `RAW INTAKE DATA (CLIENT UNEDITED RESPONSES)`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `SECTION 1: BUYER IDENTIFICATION`,
+      `  Full Name:    ${answers.fullName || "Not provided"}`,
+      `  Contact:      ${answers.contactInfo || "Not provided"}`,
+      ``,
+      `SECTION 2: PURCHASE GOALS`,
+      `  Goal:         ${answers.buyingGoal || "Not provided"}`,
+      `  Location:     ${answers.location || "Not provided"}`,
+      `  Must-Haves:   ${answers.mustHaves || "Not provided"}`,
+      ``,
+      `SECTION 3: FINANCIAL READINESS`,
+      `  Budget:       ${answers.budget || "Not provided"}`,
+      `  Financing:    ${answers.mortgageStatus || "Not provided"}`,
+      `  Down Payment: ${answers.downPayment || "Not provided"}`,
+      ``,
+      `SECTION 4: TIMELINE & OBSTACLES`,
+      `  Timeline:     ${answers.timeline || "Not provided"}`,
+      `  Current Home: ${answers.currentHome || "Not provided"}`,
+      `  Obstacles:    ${answers.obstacles || "Not provided"}`
     ].join("\n");
 
     return new Response(
