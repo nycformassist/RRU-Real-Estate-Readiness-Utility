@@ -366,6 +366,26 @@ export default function App() {
 
         if (nextPhase <= INTAKE_QUESTIONS.length) {
           setCurrentPhase(nextPhase);
+          // Ask the next question ourselves rather than hoping the
+          // model's agentResponse included it — per the AGENTRESPONSE
+          // CONTRACT in lib/constants.ts, agentResponse on an advancing
+          // turn should be acknowledgment-only now. But models don't
+          // always follow instructions perfectly, so guard against the
+          // model asking a question anyway: if its agentResponse already
+          // ends in "?", trust that it asked *something* and skip our
+          // injection — this is exactly what caused the duplicate-
+          // question problem the app previously "fixed" by removing the
+          // injection entirely (which just traded one bug for the
+          // silent-stall bug in the screenshot). Gating on this instead
+          // of removing the injection gives both: no duplicates AND no
+          // silent stalls.
+          const agentAlreadyAskedSomething = /\?\s*$/.test(String(data.agentResponse || "").trim());
+          if (!agentAlreadyAskedSomething) {
+            const nextQuestion = INTAKE_QUESTIONS[nextPhase - 1];
+            setTimeout(() => {
+              addMessage("model", nextQuestion.question);
+            }, 450);
+          }
         } else {
           setCurrentPhase(INTAKE_QUESTIONS.length + 1);
           setTimeout(() => {
@@ -373,7 +393,7 @@ export default function App() {
               "system",
               "All done! Please review your answers below — you can edit anything before submitting. When you're ready, click **Submit Profile** to send your information to our real estate team."
             );
-          }, 350);
+          }, 450);
         }
       }
     } catch (err) {
