@@ -289,6 +289,17 @@ export default function App() {
   // whenever the phase advances.
   const [preflightFailCount, setPreflightFailCount] = useState(0);
   const PREFLIGHT_BYPASS_THRESHOLD = 2;
+  // The exact text of the last question the client actually saw — the
+  // base phase question initially, but after that it may be a pushback
+  // script's question, a dynamic follow-up question, or a consistency
+  // confirmation, none of which match INTAKE_QUESTIONS[currentPhase-1].
+  // This is what gets sent to /api/evaluate as "question" so the backend
+  // grades the answer against what was REALLY asked — sending the static
+  // phase text unconditionally was the root cause of RRU accepting
+  // off-topic answers (e.g. a location) as if they'd answered a
+  // follow-up about investment strategy, since the static phase-level
+  // question reads as generically "real estate related" either way.
+  const [lastAssistantMessage, setLastAssistantMessage] = useState(INTAKE_QUESTIONS[0].question);
 
   const addMessage = (role: Message["role"], text: string) => {
     setMessages((prev) => [
@@ -325,7 +336,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phase:       currentPhase,
-          question:    currentQuestion.question,
+          question:    lastAssistantMessage,
           answer:      text.trim(),
           allAnswers:  answers,
         }),
@@ -382,9 +393,14 @@ export default function App() {
           const agentAlreadyAskedSomething = /\?\s*$/.test(String(data.agentResponse || "").trim());
           if (!agentAlreadyAskedSomething) {
             const nextQuestion = INTAKE_QUESTIONS[nextPhase - 1];
+            setLastAssistantMessage(nextQuestion.question);
             setTimeout(() => {
               addMessage("model", nextQuestion.question);
             }, 450);
+          } else {
+            // The model's acknowledgment doubled as its own question —
+            // that's now the thing the client is actually replying to.
+            setLastAssistantMessage(String(data.agentResponse));
           }
         } else {
           setCurrentPhase(INTAKE_QUESTIONS.length + 1);
@@ -395,6 +411,16 @@ export default function App() {
             );
           }, 450);
         }
+      } else {
+        // Holding the phase (pushback, follow-up, inconsistency, or a
+        // non-responsive answer caught by the new RELEVANCE CHECK). Per
+        // the AGENTRESPONSE CONTRACT in lib/constants.ts, agentResponse
+        // on a HOLD turn must itself contain the actual question the
+        // client needs to answer — so that's what "last question asked"
+        // means now, not the static phase text.
+        setLastAssistantMessage(
+          String(data.agentResponse || currentQuestion.question)
+        );
       }
     } catch (err) {
       console.error("[App] Evaluation error:", err);
