@@ -407,7 +407,7 @@ export default function App() {
           setTimeout(() => {
             addMessage(
               "system",
-              "All done! Please review your answers below. When you're ready, click **Submit Profile** to send your information to our real estate team."
+              "All done! Please review your answers above. When you're ready, click **Submit Profile** to send your information to our real estate team."
             );
           }, 450);
         }
