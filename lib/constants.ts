@@ -14,10 +14,6 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────
-// Model config
-// ─────────────────────────────────────────────────────────────────────────
 //
 // Primary is a GA (generally available) model, not a -preview build.
 // Preview models (e.g. gemini-3.1-pro-preview) share a much smaller,
@@ -117,15 +113,6 @@ export function languageByCode(code: string | undefined | null): SupportedLangua
 
 /**
  * Builds the LANGUAGE block spliced into the evaluate system instruction.
- *
- * Two modes:
- *  - explicitCode provided (client picked a language, or a prior turn
- *    already detected one): pin the response language and skip detection.
- *  - explicitCode omitted: ask the model to detect the client's language
- *    from their answer and report it back in "detectedLanguage" so the
- *    frontend can persist it and pass it as the explicit code on the next
- *    turn. This keeps language detection out of the handler code entirely
- *    — no NLP dependency, no heuristic script-matching to maintain.
  */
 export function buildLanguageDirective(explicitCode?: string | null): string {
   if (explicitCode && isSupportedLanguageCode(explicitCode)) {
@@ -169,12 +156,6 @@ const COMMERCIAL_KEYWORDS = [
   "storefront", "industrial", "lease space",
 ];
 
-/**
- * Determines buyer mode from the Phase 2 "Buying Goal" answer (and, as a
- * fallback, any free text collected so far). This is intentionally cheap
- * (keyword match) — it only decides which addendum block to splice into
- * the system instruction, it never gates or scores anything by itself.
- */
 export function detectBuyerMode(goalAnswer: string): BuyerMode {
   const text = (goalAnswer || "").toLowerCase();
   if (COMMERCIAL_KEYWORDS.some((kw) => text.includes(kw))) return "COMMERCIAL";
@@ -185,19 +166,6 @@ export function detectBuyerMode(goalAnswer: string): BuyerMode {
 // ─────────────────────────────────────────────────────────────────────────
 // Phase rules — the 11-phase Buyer Interview
 // ─────────────────────────────────────────────────────────────────────────
-//
-// 11 phases, not 10: Identity is split into a separate Name phase and
-// Contact phase so the client is never asked for their full name, phone,
-// AND email in a single message. Real triage conversations ask one thing
-// at a time — bundling questions is what makes a chatbot feel like a
-// form. Current Home Situation is kept as its own phase (matching the
-// original source spec) rather than folded elsewhere.
-//
-// Every phase below has an explicit PUSHBACK script, not just the ones
-// the source spec happened to give examples for — a client can stall on
-// any question, and "logic and pushback" means the assistant always has
-// a warm, low-pressure way to keep the conversation moving instead of
-// just re-asking the same question louder.
 
 export const PHASE_RULES: Record<number, string> = {
   1: `PHASE 1 — NAME:
@@ -266,10 +234,6 @@ REJECT: Blank, a single character, or clearly nonsensical input.
 PUSHBACK ("I'm just browsing."): Acknowledge that many successful buyers start by exploring the market before they're ready to purchase, and that the goal here is simply to understand where they are today so the guidance can be relevant.
 extractedData: The trimmed obstacle description exactly as provided, or "None identified" if the client states there is no obstacle.`,
 };
-
-// ─────────────────────────────────────────────────────────────────────────
-// Mode-specific addenda (spliced onto the base phase rule when relevant)
-// ─────────────────────────────────────────────────────────────────────────
 
 export const MODE_PHASE_ADDENDA: Record<BuyerMode, Partial<Record<number, string>>> = {
   STANDARD: {},
@@ -371,10 +335,6 @@ READINESS BANDS (based on final score, after all adjustments):
   0–39   → Educational Nurture — Not Yet Actionable — Agent Priority D
 `;
 
-// ─────────────────────────────────────────────────────────────────────────
-// Mode-specific rubric addenda
-// ─────────────────────────────────────────────────────────────────────────
-
 export const INVESTOR_SCORING_ADDENDUM = `
 BUYER MODE: INVESTOR
 The following interpretations apply on top of the standard rubric. Weights
@@ -413,8 +373,7 @@ export function scoringAddendumForMode(mode: BuyerMode): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Decision risk flags — deterministic definitions used by both the
-// model prompt and the server-side validator
+// Decision risk flags & verification items
 // ─────────────────────────────────────────────────────────────────────────
 
 export const RISK_FLAG_TYPES = [
@@ -427,9 +386,15 @@ export const RISK_FLAG_TYPES = [
   "EMPLOYMENT INSTABILITY",
 ] as const;
 
+export const VERIFICATION_ITEM_TYPES = [
+  "Confirm if there are any co-buyers or additional decision-makers involved.",
+  "Verify exact credit score and history with mortgage broker.",
+  "Gather proof of funds or preapproval letter if not already provided.",
+  "Verify that the upper end of the stated budget aligns with the pre-approval amount.",
+] as const;
+
 // ─────────────────────────────────────────────────────────────────────────
-// Derived-label helpers (pure functions, used server-side so the model's
-// output can be checked/normalized rather than trusted blindly)
+// Derived-label helpers
 // ─────────────────────────────────────────────────────────────────────────
 
 export function financingReadinessLabel(scoreFinancingStatus: number): "Excellent" | "Good" | "Needs Work" | "Unknown" {
@@ -462,21 +427,13 @@ export function readinessBand(score: number): {
 
 /**
  * Assembles the full agent-facing report as a deterministic template from
- * already-validated fields, rather than asking the model to format the
- * whole document itself. This is deliberately NOT "let the model write a
- * nice report" — every number and label here has already been computed
- * and verified server-side in api/generate-report.ts (rigid score math,
- * recomputed risk flags, recomputed property match, etc.), so the model
- * has exactly one job left: the AI BUYER SUMMARY narrative paragraph,
- * passed in as `aiNarrative`. Keeping formatting out of the model's hands
- * means the report layout can never drift, omit a section, or disagree
- * with the validated data — which a free-form model-generated report
- * always risks doing turn to turn.
+ * already-validated fields.
  */
 export function buildFullBuyerReport(
   sd: Record<string, unknown>,
   answers: Record<string, unknown>,
-  aiNarrative: string
+  aiNarrative: string,
+  verificationItems: string[] = []
 ): string {
   const str = (v: unknown, fallback = "Not provided"): string => {
     const s = typeof v === "string" ? v.trim() : "";
@@ -501,7 +458,7 @@ export function buildFullBuyerReport(
   ].filter((p) => p.length > 0);
   const buyingPower = buyingPowerParts.length > 0 ? buyingPowerParts.join("; ") : "Not provided";
 
-  return [
+  const reportSections = [
     "RRU™ AI BUYER QUALIFICATION & READINESS ENGINE",
     `Generated: ${generatedAt} ET`,
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -522,6 +479,17 @@ export function buildFullBuyerReport(
     "",
     "DECISION RISK FLAGS:",
     ...riskFlags.map((f) => `  - ${f}`),
+  ];
+
+  if (verificationItems.length > 0) {
+    reportSections.push(
+      "",
+      "AGENT VERIFICATION ITEMS (Neutral - Out of Intake Scope):",
+      ...verificationItems.map((item) => `  - ${item}`)
+    );
+  }
+
+  reportSections.push(
     "",
     "RECOMMENDED NEXT STEP:",
     `  >>> ${str(sd.recommendedNextStep, "Follow Up in 90 Days")} <<<`,
@@ -540,36 +508,22 @@ export function buildFullBuyerReport(
     "",
     "SECTION 3: FINANCIAL READINESS",
     `  Budget:       ${str(sd.budget ?? answers.budget)}`,
-    `  Financing:    ${str(sd.mortgageStatus ?? answers.mortgageStatus)}`,
+    `  Financing:    ${str(sd.mortgageStatus ?? answers.financing ?? answers.mortgageStatus)}`,
     `  Down Payment: ${str(sd.downPayment ?? answers.downPayment)}`,
     "",
     "SECTION 4: TIMELINE, HOUSING & OBSTACLES",
     `  Timeline:     ${str(sd.timeline ?? answers.timeline)}`,
     `  Current Home: ${str(sd.currentHomeSituation ?? answers.currentHomeSituation)}`,
     `  Obstacles:    ${str(sd.obstacles ?? answers.obstacles)}`,
-  ].join("\n");
+  );
+
+  return reportSections.join("\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // System-instruction builders
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Builds the systemInstruction for /api/evaluate.
- *
- * Two behaviors beyond the base phase rule are layered in on every call:
- *
- * 1. CONSISTENCY CHECKING — the model is required to diff the current
- *    answer against `allAnswers` and flag (not silently ignore) any
- *    contradiction before deciding whether to advance the phase.
- *
- * 2. DYNAMIC FOLLOW-UP — if the current answer is "high-value" (i.e. it
- *    would meaningfully move the readiness score, such as a preapproval
- *    disclosure, a stated cash-purchase, or a specific investment thesis),
- *    the model must ask ONE targeted follow-up question specific to that
- *    disclosure before advancing, rather than moving on with a generic
- *    acknowledgment.
- */
 export function buildEvaluateSystemInstruction(phaseNum: number, mode: BuyerMode, languageCode?: string | null): string {
   const baseRule = PHASE_RULES[phaseNum];
   const addendum = MODE_PHASE_ADDENDA[mode]?.[phaseNum] || "";
@@ -734,9 +688,6 @@ false "hold" traps the client in a loop; a false "advance" merely asks one
 extra confirming question next turn.`;
 }
 
-/**
- * Builds the systemInstruction for /api/generate-report.
- */
 export function buildReportSystemInstruction(mode: BuyerMode): string {
   const modeLabel = mode === "INVESTOR" ? "Investor" : mode === "COMMERCIAL" ? "Commercial Buyer" : "Standard Buyer";
   const modeAddendum = scoringAddendumForMode(mode);
@@ -752,8 +703,9 @@ CRITICAL SCORING RULES:
 1. For every category, first populate "categoryEvidence" with a short (≤20 word) verbatim-adjacent quote or explicit "no statement provided" note from the intake data — this MUST be done before the numeric score for that category is written.
 2. The "score" field MUST equal the exact arithmetic sum of all 7 category scores. If your math produces a different number, recalculate before returning.
 3. Score only what is explicitly supported by the collected intake data. Do not infer, assume, or give benefit of the doubt for missing information.
-4. Absence of information scores in the lowest band for that category — never the middle band "to be fair."
+4. Absence of information scores in the lowest band for that category, EXCEPT for "decisionAuthority" and "documentation", which default to a neutral mid-band score (e.g., 5 for decisionAuthority, 2 for documentation) since the 11-phase intake does not explicitly ask for these. These will be handled as "Agent Verification Items" instead of penalties.
 5. Agent Priority and Recommended Next Step MUST be consistent with the readiness band the final score falls into.
+6. STRICT DATA GROUNDING: Do not generate any risk flag if the user has explicitly addressed that topic in their answers. Cross-reference every single risk flag against the user's raw intake answers. If data is missing because it was outside the intake scope, label it neutrally as an "Agent Verification Item" rather than assuming a negative risk.
 
 MANDATORY LANGUAGE RULES:
 Every explanation in SCORE JUSTIFICATION and DECISION RISK FLAGS must reference
