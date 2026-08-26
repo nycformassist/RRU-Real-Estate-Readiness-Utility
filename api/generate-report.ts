@@ -20,6 +20,7 @@ import {
   readinessBand,
   buildFullBuyerReport,
   RISK_FLAG_TYPES,
+  VERIFICATION_ITEM_TYPES,
   languageByCode,
   isSupportedLanguageCode,
   type BuyerMode,
@@ -41,45 +42,91 @@ function clamp(value: number, max: number): number {
 }
 
 /**
- * Re-derives the deterministic risk flags directly from the raw intake
- * answers rather than trusting the model's own "riskFlags" array. This is
- * the same pattern the legacy engine used for its calibration passes: let
- * the model draft, then verify anything that has a mechanical answer.
+ * Re-derives deterministic risk flags AND neutral verification items directly 
+ * from the raw intake answers. This prevents the model from hallucinating 
+ * generic risks (like "Missing Preapproval") when the data explicitly resolves them.
  */
-function computeRiskFlags(answers: Record<string, unknown>, categoryScores: Record<ScoreCategory, number>): string[] {
-  const flags: string[] = [];
-  const mortgageStatus = String(answers.mortgageStatus || "").toLowerCase();
+function computeRiskAndVerification(
+  answers: Record<string, unknown>, 
+  categoryScores: Record<ScoreCategory, number>
+): { riskFlags: string[]; verificationItems: string[] } {
+  const riskFlags: string[] = [];
+  const verificationItems: string[] = [];
+
+  // Combine financing fields to catch "Pre-approved" regardless of which key it landed in
+  const rawFinancingText = `${answers.financing || ""} ${answers.mortgageStatus || ""}`.toLowerCase();
+  
+  // FIX HYPHEN BUG: Remove hyphens so "pre-approved" successfully matches "preapprov"
+  const financingText = rawFinancingText.replace(/-/g, "");
   const downPayment = String(answers.downPayment || "").toLowerCase();
   const timelineText = String(answers.timeline || "").toLowerCase();
   const currentHome = String(answers.currentHomeSituation || "").toLowerCase();
+  const obstacles = String(answers.obstacles || "").toLowerCase();
 
-  const isCash = mortgageStatus.includes("cash");
-  const isPreapproved = mortgageStatus.includes("preapprov");
+  const isCash = financingText.includes("cash");
+  const isPreapproved = financingText.includes("preapprov") || financingText.includes("prequalif");
 
+  // 1. MISSING PREAPPROVAL (Strict: only if NOT cash AND NOT preapproved)
   if (!isCash && !isPreapproved) {
-    flags.push("MISSING PREAPPROVAL: Buyer has not confirmed preapproval and is not paying cash.");
+    riskFlags.push("MISSING PREAPPROVAL: Buyer has not confirmed preapproval and is not paying cash.");
   }
+
+  // 2. NO DOWN PAYMENT
   if (!isCash && (downPayment.includes("unknown") || downPayment.trim().length === 0)) {
-    flags.push("NO DOWN PAYMENT: Down payment source or amount has not been established.");
+    riskFlags.push("NO DOWN PAYMENT: Down payment source or amount has not been established.");
   }
+
+  // 3. UNCLEAR TIMELINE
   if (categoryScores.timeline <= 4 || timelineText.includes("don't know") || timelineText.includes("not sure")) {
-    flags.push("UNCLEAR TIMELINE: No firm purchase timeline has been established.");
+    riskFlags.push("UNCLEAR TIMELINE: No firm purchase timeline has been established.");
   }
-  if (categoryScores.decisionAuthority <= 4) {
-    flags.push("MULTIPLE DECISION MAKERS: Decision-making authority is shared or unconfirmed.");
+
+  // 4. MULTIPLE DECISION MAKERS (Only if explicitly stated as an obstacle, NOT just because it wasn't asked)
+  if (obstacles.includes("spouse") || obstacles.includes("partner") || obstacles.includes("unsure") || obstacles.includes("conflict")) {
+    riskFlags.push("MULTIPLE DECISION MAKERS: Decision-making authority is shared or unconfirmed.");
+  } else {
+    verificationItems.push("Confirm if there are any co-buyers or additional decision-makers involved.");
   }
+
+  // 5. NEEDS TO SELL EXISTING HOME
   if (currentHome.includes("need to sell")) {
-    flags.push("NEEDS TO SELL EXISTING HOME: Purchase may be contingent on the sale of a current property.");
+    riskFlags.push("NEEDS TO SELL EXISTING HOME: Purchase may be contingent on the sale of a current property.");
   }
-  if (!downPayment.match(/credit|score/) && !mortgageStatus.match(/credit|score/)) {
-    flags.push("CREDIT UNKNOWN: No credit information has been shared or confirmed.");
+
+  // 6. CREDIT UNKNOWN (Only if explicitly stated as a problem, NOT just because it wasn't asked)
+  const creditText = `${answers.creditScore || ""} ${answers.credit || ""} ${obstacles}`.toLowerCase();
+  if (creditText.includes("bad") || creditText.includes("poor") || creditText.includes("repair") || creditText.includes("unknown")) {
+    riskFlags.push("CREDIT UNKNOWN: Credit issues identified as an obstacle.");
+  } else {
+    verificationItems.push("Verify exact credit score and history with mortgage broker.");
   }
+
+  // 7. EMPLOYMENT INSTABILITY
   const financialText = String(answers.budget || "") + " " + String(answers.categoryEvidence ?? "");
   if (financialText.toLowerCase().includes("between jobs") || (financialText.toLowerCase().includes("self-employed") && !financialText.toLowerCase().includes("confirmed"))) {
-    flags.push("EMPLOYMENT INSTABILITY: Employment or income stability has not been confirmed.");
+    riskFlags.push("EMPLOYMENT INSTABILITY: Employment or income stability has not been confirmed.");
   }
 
-  return flags;
+  // 8. REAL NUMERIC BUDGET-VS-PREAPPROVAL CROSS-CHECK
+  const budgetStr = String(answers.budget || "");
+  const financingStr = String(answers.financing || "") + " " + String(answers.mortgageStatus || "");
+  
+  const budgetNumbers = budgetStr.match(/\d+/g);
+  const maxBudget = budgetNumbers ? Math.max(...budgetNumbers.map(Number)) : 0;
+  
+  const preapprovalNumbers = financingStr.match(/\d+/g);
+  const preapprovalAmount = preapprovalNumbers ? Math.max(...preapprovalNumbers.map(Number)) : 0;
+
+  if (maxBudget > 0 && preapprovalAmount > 0 && maxBudget > preapprovalAmount) {
+    verificationItems.push(`Budget-to-Preapproval Gap: Stated max budget ($${maxBudget.toLocaleString()}) exceeds mentioned pre-approval amount ($${preapprovalAmount.toLocaleString()}). Agent to verify financing strategy for the difference.`);
+  }
+
+  // 9. DOCUMENTATION (Neutral verification item, not a risk flag unless explicitly missing)
+  if (!financingText.includes("proof of funds") && !financingText.includes("preapproval letter")) {
+    verificationItems.push("Gather proof of funds or preapproval letter if not already provided.");
+  }
+
+  return { riskFlags, verificationItems };
 }
 
 function derivePropertyMatch(mustHaves: string, buyingGoal: string): string[] {
@@ -209,15 +256,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ? languageByCode(persistedLanguageCode).label
     : (typeof sd.clientLanguage === "string" && sd.clientLanguage.trim().length > 0 ? sd.clientLanguage : "English");
 
-  // ── Risk flags — recomputed deterministically from raw answers
-  const computedFlags = computeRiskFlags(answers, categoryScores);
+  // ── Risk flags & Verification Items — recomputed deterministically from raw answers
+  const { riskFlags: computedFlags, verificationItems } = computeRiskAndVerification(answers, categoryScores);
   sd.riskFlags = computedFlags.length > 0 ? computedFlags : ["None identified."];
+  sd.verificationItems = verificationItems;
 
   // ── Property match — recomputed from must-haves + goal text
   sd.propertyMatch = derivePropertyMatch(String(answers.mustHaves || ""), buyingGoal);
 
   // ── Recommended next step — deterministic mapping off the validated band
-  //    and financing readiness, so it can never contradict the score.
   const hasMissingPreapproval = computedFlags.some((f) => f.startsWith("MISSING PREAPPROVAL"));
   const hasCreditUnknown = computedFlags.some((f) => f.startsWith("CREDIT UNKNOWN"));
   let nextStep: string;
@@ -234,26 +281,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   sd.recommendedNextStep = nextStep;
 
-  // ── RISK_FLAG_TYPES is exported for downstream consumers (e.g. the
-  //    dashboard) that want to render a fixed-order checklist; expose it
-  //    alongside the computed flags without altering scoring.
+  // ── RISK_FLAG_TYPES and VERIFICATION_ITEM_TYPES are exported for downstream consumers
   sd.riskFlagTaxonomy = RISK_FLAG_TYPES;
+  sd.verificationItemTaxonomy = VERIFICATION_ITEM_TYPES;
 
   // ── Full report assembly ────────────────────────────────────────────
-  // The model's "buyerSummary" up to this point is just the short AI
-  // narrative paragraph — preserve it under its own key, then replace
-  // "buyerSummary" with the full deterministic report (score, tier,
-  // qualification metrics, risk flags, next step, and the complete raw
-  // intake data) via buildFullBuyerReport(). This is what actually gets
-  // emailed to the agent in api/intake.ts and shown in App.tsx's
-  // fallback path — a 3-5 sentence blurb alone isn't enough for an agent
-  // to act on; the full report with raw intake data is.
   const aiNarrative =
     typeof parsed.buyerSummary === "string" && parsed.buyerSummary.trim().length > 0
       ? parsed.buyerSummary.trim()
       : "Summary unavailable — review raw intake data below.";
   sd.aiNarrative = aiNarrative;
-  parsed.buyerSummary = buildFullBuyerReport(sd, answers, aiNarrative);
+  
+  // Pass verificationItems into the report builder
+  parsed.buyerSummary = buildFullBuyerReport(sd, answers, aiNarrative, verificationItems);
 
   res.status(200).json(parsed);
 }
