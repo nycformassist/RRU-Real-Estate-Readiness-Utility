@@ -261,6 +261,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   sd.motivationIndex = motivationIndexLabel(categoryScores.motivation);
   sd.buyerMode = mode;
 
+  // ── Server-side Temporal Normalization Guardrail ────────────────────────────────────
+  // Hard override: If the LLM hallucinates "1 Year+" for a specific near-term date, correct it.
+  const rawTimeline = String(answers.timeline || "").toLowerCase();
+  const modelTimeline = String(sd.purchaseTimeline || "");
+  
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  const holidays: Record<string, number> = { 
+    "spring": 3, "summer": 5, "fall": 8, "autumn": 8, "winter": 11, 
+    "halloween": 9, "thanksgiving": 10, "christmas": 11, "xmas": 11, "holidays": 11 
+  };
+
+  let targetMonth = -1;
+  let targetYear = currentYear;
+
+  const yearMatch = rawTimeline.match(/20\d{2}/);
+  if (yearMatch) targetYear = parseInt(yearMatch[0], 10);
+
+  for (let i = 0; i < months.length; i++) {
+    if (rawTimeline.includes(months[i])) { targetMonth = i; break; }
+  }
+  if (targetMonth === -1) {
+    for (const [holiday, month] of Object.entries(holidays)) {
+      if (rawTimeline.includes(holiday)) { targetMonth = month; break; }
+    }
+  }
+
+  if (targetMonth !== -1 && modelTimeline === "1 Year+") {
+    let diffMonths = (targetYear - currentYear) * 12 + (targetMonth - currentMonth);
+    if (diffMonths < 0) diffMonths += 12; // Assume next year if the month already passed this year
+
+    if (diffMonths <= 1) sd.purchaseTimeline = "30 Days";
+    else if (diffMonths <= 3) sd.purchaseTimeline = "90 Days";
+    else if (diffMonths <= 6) sd.purchaseTimeline = "6 Months";
+    
+    if (sd.purchaseTimeline !== "1 Year+") {
+      console.warn(`[api/generate-report] Timeline corrected — model returned "1 Year+" for "${answers.timeline}", server computed ${sd.purchaseTimeline} (${diffMonths} months out).`);
+    }
+  }
+
   // clientLanguage: trust the persisted code from the intake flow over
   // whatever the model guessed, since it's the language actually recorded
   // turn-by-turn by /api/evaluate rather than inferred after the fact.

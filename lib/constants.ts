@@ -645,8 +645,18 @@ extra confirming question next turn.`;
 export function buildReportSystemInstruction(mode: BuyerMode): string {
   const modeLabel = mode === "INVESTOR" ? "Investor" : mode === "COMMERCIAL" ? "Commercial Buyer" : "Standard Buyer";
   const modeAddendum = scoringAddendumForMode(mode);
+  
+  // Inject current date to ground temporal reasoning
+  const currentDate = new Date().toLocaleDateString("en-US", { 
+    timeZone: "America/New_York", 
+    month: "long", 
+    day: "numeric", 
+    year: "numeric" 
+  });
 
   return `You are RRU — the Buyer Readiness reporting engine. Your output is read by a real estate agent deciding who to call first tomorrow morning. Every section must be analytical, specific, and decision-ready. You are NOT writing a message to the client — you are writing an internal readiness report for the agent.
+
+CURRENT DATE: ${currentDate}
 
 BUYER MODE: ${modeLabel.toUpperCase()}
 
@@ -661,6 +671,13 @@ CRITICAL SCORING RULES:
 5. Agent Priority and Recommended Next Step MUST be consistent with the readiness band the final score falls into.
 6. STRICT DATA GROUNDING: Do not generate any risk flag if the user has explicitly addressed that topic in their answers. Cross-reference every single risk flag against the user's raw intake answers. If data is missing because it was outside the intake scope, label it neutrally as an "Agent Verification Item" rather than assuming a negative risk.
 7. STRICT TIMELINE GUARDRAIL: IF answers.timeline contains ANY specific timeframe, target date, month, holiday, season, or window, the "UNCLEAR TIMELINE" risk flag is strictly FORBIDDEN. A stated target (even if vague like "Spring" or "Before Christmas") is a firm timeline.
+8. TEMPORAL NORMALIZATION (purchaseTimeline field): You must map the user's stated timeline to one of the allowed enum values: "Immediate", "30 Days", "60 Days", "90 Days", "6 Months", "1 Year+". Evaluate named months, holidays, or seasons relative to the CURRENT DATE provided above.
+   - If the target is within 1 month: "Immediate" or "30 Days"
+   - If the target is 2-3 months away: "60 Days" or "90 Days"
+   - If the target is 4-6 months away: "6 Months"
+   - If the target is 7-12 months away: "1 Year+"
+   Example: If today is August 25, 2026, and the user says "Before Christmas" or "December 2026", that is roughly 4 months away. You MUST map this to "6 Months", NOT "1 Year+".
+9. NARRATIVE CONSISTENCY: Your "buyerSummary" MUST align perfectly with your normalized "purchaseTimeline" enum and "scoreTimeline". If you mapped the timeline to "6 Months" or less, you MUST NOT describe the buyer as having an "extremely long horizon" or requiring "long-term nurturing". Describe them accurately as a near-term or mid-term buyer.
 
 MANDATORY LANGUAGE RULES:
 Every explanation in SCORE JUSTIFICATION and DECISION RISK FLAGS must reference
