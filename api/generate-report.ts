@@ -77,7 +77,13 @@ function computeRiskAndVerification(
   }
 
   // 3. UNCLEAR TIMELINE
-  if (categoryScores.timeline <= 4 || timelineText.includes("don't know") || timelineText.includes("not sure")) {
+  // Hard guardrail: If ANY specific timeline text is provided (and isn't explicitly "don't know"), 
+  // we hard-block the UNCLEAR TIMELINE flag, regardless of the LLM's category score.
+  const hasSpecificTimeline = timelineText.length > 0 && 
+                              !timelineText.includes("don't know") && 
+                              !timelineText.includes("not sure") && 
+                              !timelineText.includes("unknown");
+  if (!hasSpecificTimeline) {
     riskFlags.push("UNCLEAR TIMELINE: No firm purchase timeline has been established.");
   }
 
@@ -121,8 +127,15 @@ function computeRiskAndVerification(
     verificationItems.push(`Budget-to-Preapproval Gap: Stated max budget ($${maxBudget.toLocaleString()}) exceeds mentioned pre-approval amount ($${preapprovalAmount.toLocaleString()}). Agent to verify financing strategy for the difference.`);
   }
 
-  // 9. DOCUMENTATION (Neutral verification item, not a risk flag unless explicitly missing)
-  if (!financingText.includes("proof of funds") && !financingText.includes("preapproval letter")) {
+  // 9. DOCUMENTATION (Context-aware verification item)
+  // Extract the raw string exactly as the user typed it to feed back into the verification prompt contextually
+  const rawFinancingStr = [answers.mortgageStatus, answers.financing].filter(Boolean).join(" ").trim();
+  
+  if (isPreapproved) {
+    verificationItems.push(`Verify and collect existing pre-approval documentation (e.g., ${rawFinancingStr}) to validate buyer capacity.`);
+  } else if (isCash) {
+    verificationItems.push("Verify and collect existing proof of funds documentation to validate buyer capacity.");
+  } else if (!financingText.includes("proof of funds") && !financingText.includes("preapproval letter")) {
     verificationItems.push("Gather proof of funds or preapproval letter if not already provided.");
   }
 

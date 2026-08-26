@@ -14,32 +14,12 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
-//
-// Primary is a GA (generally available) model, not a -preview build.
-// Preview models (e.g. gemini-3.1-pro-preview) share a much smaller,
-// unguaranteed capacity pool and are the most common source of transient
-// 503 "high demand" errors. Stable model short-names get Google's
-// production capacity and SLA.
-//
-// FALLBACK_MODEL_NAME is a different model generation entirely (not just
-// a different size of the same family), so a capacity incident affecting
-// one Gemini generation doesn't take down both the primary and the
-// fallback at once. See lib/gemini-client.ts for the retry/fallback logic
-// that actually uses these.
 export const MODEL_NAME = "gemini-3.5-flash";
 export const FALLBACK_MODEL_NAME = "gemini-2.5-flash";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Strict response schema for /api/evaluate
 // ─────────────────────────────────────────────────────────────────────────
-//
-// Passed as `responseSchema` alongside responseMimeType: "application/json"
-// so Gemini's structured-output mode enforces real JSON types at the API
-// level — isValid/advancePhase/etc. cannot come back as strings, numbers,
-// or be omitted. This is defense-in-depth, not a substitute for the
-// server-side advancePhase recomputation in api/evaluate.ts: the schema
-// guarantees TYPES are correct, not that the VALUE of advancePhase is
-// logically consistent with isValid — that's still validated in code.
 export const EVALUATE_RESPONSE_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -67,23 +47,10 @@ export const EVALUATE_RESPONSE_SCHEMA = {
 // ─────────────────────────────────────────────────────────────────────────
 // Language access — NYC Local Law 30 (2017) designated citywide languages
 // ─────────────────────────────────────────────────────────────────────────
-//
-// Local Law 30 requires covered NYC agencies to translate their most
-// commonly distributed materials into the city's 10 designated citywide
-// languages, determined from US Census + NYC DOE data on limited-English-
-// proficient (LEP) New Yorkers: Spanish, Chinese, Russian, Bengali,
-// Haitian Creole, Korean, Arabic, Urdu, French, and Polish. RRU treats
-// these 10 (plus English) as the supported intake languages. This is a
-// floor, not a ceiling — NYC agencies also provide telephonic
-// interpretation in ~100 languages, so treat this list as "guaranteed
-// first-class support," not "the only languages we'll ever see."
-
 export interface SupportedLanguage {
-  /** BCP-47 code used in requests, storage, and the frontend toggle. */
   code: string;
   label: string;
   nativeLabel: string;
-  /** Right-to-left script — the frontend should set dir="rtl" for these. */
   rtl?: boolean;
 }
 
@@ -111,9 +78,6 @@ export function languageByCode(code: string | undefined | null): SupportedLangua
   return SUPPORTED_LANGUAGES.find((l) => l.code === code) || SUPPORTED_LANGUAGES[0];
 }
 
-/**
- * Builds the LANGUAGE block spliced into the evaluate system instruction.
- */
 export function buildLanguageDirective(explicitCode?: string | null): string {
   if (explicitCode && isSupportedLanguageCode(explicitCode)) {
     const lang = languageByCode(explicitCode);
@@ -140,9 +104,8 @@ If the answer is too short to confidently detect a language (e.g. just a phone n
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Buyer mode detection (mirrors the old PI/GENERAL split, adapted for RE)
+// Buyer mode detection
 // ─────────────────────────────────────────────────────────────────────────
-
 export type BuyerMode = "STANDARD" | "INVESTOR" | "COMMERCIAL";
 
 const INVESTOR_KEYWORDS = [
@@ -166,7 +129,6 @@ export function detectBuyerMode(goalAnswer: string): BuyerMode {
 // ─────────────────────────────────────────────────────────────────────────
 // Phase rules — the 11-phase Buyer Interview
 // ─────────────────────────────────────────────────────────────────────────
-
 export const PHASE_RULES: Record<number, string> = {
   1: `PHASE 1 — NAME:
 ACCEPT: Any plausible name — a full name is ideal, but a first name alone is enough to proceed.
@@ -251,7 +213,6 @@ export const MODE_PHASE_ADDENDA: Record<BuyerMode, Partial<Record<number, string
 // ─────────────────────────────────────────────────────────────────────────
 // Scoring rubric — weighted 100-point model
 // ─────────────────────────────────────────────────────────────────────────
-
 export const CATEGORY_WEIGHTS = {
   financialReadiness: 25,
   motivation: 20,
@@ -263,7 +224,6 @@ export const CATEGORY_WEIGHTS = {
 } as const;
 
 export type ScoreCategory = keyof typeof CATEGORY_WEIGHTS;
-
 export const SCORE_CATEGORY_KEYS = Object.keys(CATEGORY_WEIGHTS) as ScoreCategory[];
 
 export const SCORING_RUBRIC = `
@@ -288,9 +248,10 @@ sum of all 7 category scores. Recalculate before returning if it does not.
 
 3. TIMELINE (scoreTimeline, weight 15):
   13–15: Immediate or 30 days, with confirmed ability to act.
-  9–12: 60–90 days.
-  5–8: 6 months.
+  9–12: 60–90 days (or specific named months/holidays/seasons within 6 months, e.g., "Before Christmas", "December").
+  5–8: 6 months (or specific named seasons/months 6-12 months out).
   0–4: 1 year+ or unknown/unwilling to estimate.
+  NOTE: Treat specific months, holidays, or seasons (e.g., "December", "Christmas", "Summer") as concrete target windows relative to the current date. Do not default to "1 Year+" or "unknown" just because a specific calendar date wasn't given in days.
 
 4. PROPERTY CLARITY (scorePropertyClarity, weight 10):
   8–10: Specific property type, location, and must-haves are all identified.
@@ -375,7 +336,6 @@ export function scoringAddendumForMode(mode: BuyerMode): string {
 // ─────────────────────────────────────────────────────────────────────────
 // Decision risk flags & verification items
 // ─────────────────────────────────────────────────────────────────────────
-
 export const RISK_FLAG_TYPES = [
   "MISSING PREAPPROVAL",
   "NO DOWN PAYMENT",
@@ -396,7 +356,6 @@ export const VERIFICATION_ITEM_TYPES = [
 // ─────────────────────────────────────────────────────────────────────────
 // Derived-label helpers
 // ─────────────────────────────────────────────────────────────────────────
-
 export function financingReadinessLabel(scoreFinancingStatus: number): "Excellent" | "Good" | "Needs Work" | "Unknown" {
   if (scoreFinancingStatus >= 13) return "Excellent";
   if (scoreFinancingStatus >= 8) return "Good";
@@ -425,10 +384,6 @@ export function readinessBand(score: number): {
   return { label: "Educational Nurture", nextStep: "Not Yet Actionable", agentPriority: "D" };
 }
 
-/**
- * Assembles the full agent-facing report as a deterministic template from
- * already-validated fields.
- */
 export function buildFullBuyerReport(
   sd: Record<string, unknown>,
   answers: Record<string, unknown>,
@@ -523,7 +478,6 @@ export function buildFullBuyerReport(
 // ─────────────────────────────────────────────────────────────────────────
 // System-instruction builders
 // ─────────────────────────────────────────────────────────────────────────
-
 export function buildEvaluateSystemInstruction(phaseNum: number, mode: BuyerMode, languageCode?: string | null): string {
   const baseRule = PHASE_RULES[phaseNum];
   const addendum = MODE_PHASE_ADDENDA[mode]?.[phaseNum] || "";
@@ -706,6 +660,7 @@ CRITICAL SCORING RULES:
 4. Absence of information scores in the lowest band for that category, EXCEPT for "decisionAuthority" and "documentation", which default to a neutral mid-band score (e.g., 5 for decisionAuthority, 2 for documentation) since the 11-phase intake does not explicitly ask for these. These will be handled as "Agent Verification Items" instead of penalties.
 5. Agent Priority and Recommended Next Step MUST be consistent with the readiness band the final score falls into.
 6. STRICT DATA GROUNDING: Do not generate any risk flag if the user has explicitly addressed that topic in their answers. Cross-reference every single risk flag against the user's raw intake answers. If data is missing because it was outside the intake scope, label it neutrally as an "Agent Verification Item" rather than assuming a negative risk.
+7. STRICT TIMELINE GUARDRAIL: IF answers.timeline contains ANY specific timeframe, target date, month, holiday, season, or window, the "UNCLEAR TIMELINE" risk flag is strictly FORBIDDEN. A stated target (even if vague like "Spring" or "Before Christmas") is a firm timeline.
 
 MANDATORY LANGUAGE RULES:
 Every explanation in SCORE JUSTIFICATION and DECISION RISK FLAGS must reference
