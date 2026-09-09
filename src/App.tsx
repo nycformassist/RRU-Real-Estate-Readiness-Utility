@@ -8,11 +8,8 @@ export type Message = {
 };
 
 export type SubmitStatus = "idle" | "submitting" | "success" | "error";
+export type Language = "en" | "es";
 
-// Matches the actual output of /api/generate-report (see lib/constants.ts
-// buildReportSystemInstruction + api/generate-report.ts's server-side
-// validation). This used to drift from the backend's real schema — keep
-// it in sync whenever generate-report.ts's structuredData shape changes.
 export type StructuredData = {
   fullName: string;
   contactInfo: string;
@@ -55,119 +52,155 @@ export type StructuredData = {
   submittedAt?: string;
 };
 
-// ── Intake question definitions ──────────────────────────────────────────────
-// 11 phases, one topic at a time — no bundled "name + phone + email"
-// opener. Field keys line up 1:1 with lib/constants.ts's PHASE_RULES and
-// with what api/generate-report.ts reads off `answers`.
-const INTAKE_QUESTIONS = [
-  {
-    phase: 1,
-    field: "fullName",
-    question:
-      "Welcome to the RRU™ Real Estate Matchmaker! I'll ask a few quick questions to match you with the right properties and agent. To start — what's your **name**?",
-  },
-  {
-    phase: 2,
-    field: "contactInfo",
-    question:
-      "Thanks! What's the best **phone number and/or email** to reach you at?",
-  },
-  {
-    phase: 3,
-    field: "buyingGoal",
-    question:
-      "Are you looking to buy a primary home, invest, relocate, purchase a second home, or explore commercial property — or just exploring the market for now?",
-  },
-  {
-    phase: 4,
-    field: "location",
-    question:
-      "Got it. What **cities, neighborhoods, or zip codes** are you primarily interested in?",
-  },
-  {
-    phase: 5,
-    field: "budget",
-    question:
-      "What's your approximate **target price or budget range**?",
-  },
-  {
-    phase: 6,
-    field: "mortgageStatus",
-    question:
-      "Have you already spoken to a lender and been **pre-approved**, or will you be purchasing with cash?",
-  },
-  {
-    phase: 7,
-    field: "downPayment",
-    question:
-      "Roughly how much are you planning to put towards a **down payment**?",
-  },
-  {
-    phase: 8,
-    field: "timeline",
-    question:
-      "What's your **ideal timeline** to move or close? (e.g., immediately, 3 months, next year)",
-  },
-  {
-    phase: 9,
-    field: "currentHomeSituation",
-    question:
-      "What's your current housing situation — **renting, own your home, living with family**, a lease ending soon, or do you need to sell your current home first?",
-  },
-  {
-    phase: 10,
-    field: "mustHaves",
-    question:
-      "What are your **must-haves** for a new property? (e.g., bedrooms, bathrooms, yard, parking, school district)",
-  },
-  {
-    phase: 11,
-    field: "obstacles",
-    question:
-      "Last one — is anything **holding you back** right now, like credit concerns, saving for a down payment, finding the right property, or needing to sell your current home first?",
-  },
-];
+const INTAKE_QUESTIONS: Record<Language, { phase: number; field: string; question: string }[]> = {
+  en: [
+    {
+      phase: 1,
+      field: "fullName",
+      question: "Welcome to the RRU™ Real Estate Matchmaker! I'll ask a few quick questions to match you with the right properties and agent. To start — what's your **name**?",
+    },
+    {
+      phase: 2,
+      field: "contactInfo",
+      question: "Thanks! What's the best **phone number and/or email** to reach you at?",
+    },
+    {
+      phase: 3,
+      field: "buyingGoal",
+      question: "Are you looking to buy a primary home, invest, relocate, purchase a second home, or explore commercial property — or just exploring the market for now?",
+    },
+    {
+      phase: 4,
+      field: "location",
+      question: "Got it. What **cities, neighborhoods, or zip codes** are you primarily interested in?",
+    },
+    {
+      phase: 5,
+      field: "budget",
+      question: "What's your approximate **target price or budget range**?",
+    },
+    {
+      phase: 6,
+      field: "mortgageStatus",
+      question: "Have you already spoken to a lender and been **pre-approved**, or will you be purchasing with cash?",
+    },
+    {
+      phase: 7,
+      field: "downPayment",
+      question: "Roughly how much are you planning to put towards a **down payment**?",
+    },
+    {
+      phase: 8,
+      field: "timeline",
+      question: "What's your **ideal timeline** to move or close? (e.g., immediately, 3 months, next year)",
+    },
+    {
+      phase: 9,
+      field: "currentHomeSituation",
+      question: "What's your current housing situation — **renting, own your home, living with family**, a lease ending soon, or do you need to sell your current home first?",
+    },
+    {
+      phase: 10,
+      field: "mustHaves",
+      question: "What are your **must-haves** for a new property? (e.g., bedrooms, bathrooms, yard, parking, school district)",
+    },
+    {
+      phase: 11,
+      field: "obstacles",
+      question: "Last one — is anything **holding you back** right now, like credit concerns, saving for a down payment, finding the right property, or needing to sell your current home first?",
+    },
+  ],
+  es: [
+    {
+      phase: 1,
+      field: "fullName",
+      question: "¡Bienvenido al Agente inmobiliario RRU™! Haré algunas preguntas rápidas para relacionarle con las propiedades y el agente adecuados. Para empezar, ¿cuál es su **nombre**?",
+    },
+    {
+      phase: 2,
+      field: "contactInfo",
+      question: "¡Gracias! ¿Cuál es el mejor **número de teléfono y/o correo electrónico** para comunicarnos con usted?",
+    },
+    {
+      phase: 3,
+      field: "buyingGoal",
+      question: "¿Busca comprar una vivienda principal, invertir, mudarse, comprar una segunda vivienda o explorar propiedades comerciales, o solo está explorando el mercado por ahora?",
+    },
+    {
+      phase: 4,
+      field: "location",
+      question: "Entendido. ¿Qué **ciudades, vecindarios o códigos postales** le interesan principalmente?",
+    },
+    {
+      phase: 5,
+      field: "budget",
+      question: "¿Cuál es su **precio objetivo o rango de presupuesto** aproximado?",
+    },
+    {
+      phase: 6,
+      field: "mortgageStatus",
+      question: "¿Ya ha hablado con un prestamista y ha sido **preaprobado**, o comprará al contado?",
+    },
+    {
+      phase: 7,
+      field: "downPayment",
+      question: "¿Cuánto planea aportar aproximadamente para el **pago inicial**?",
+    },
+    {
+      phase: 8,
+      field: "timeline",
+      question: "¿Cuál es su **plazo ideal** para mudarse o cerrar? (ej., inmediatamente, 3 meses, el próximo año)",
+    },
+    {
+      phase: 9,
+      field: "currentHomeSituation",
+      question: "¿Cuál es su situación de vivienda actual — **alquila, posee su casa, vive con su familia**, se le acaba el contrato pronto, o necesita vender su casa actual primero?",
+    },
+    {
+      phase: 10,
+      field: "mustHaves",
+      question: "¿Cuáles son sus **requisitos indispensables** para una nueva propiedad? (ej., habitaciones, baños, patio, estacionamiento, distrito escolar)",
+    },
+    {
+      phase: 11,
+      field: "obstacles",
+      question: "Última pregunta — ¿hay algo que **le esté deteniendo** en este momento, como problemas de crédito, ahorro para el pago inicial, encontrar la propiedad adecuada o necesitar vender primero?",
+    },
+  ]
+};
 
-// ── All fields for submission guard ──────────────────────────────────────────
-const ALL_FIELDS: { key: string; label: string; critical: boolean }[] = [
-  { key: "fullName",            label: "Full Name",              critical: true  },
-  { key: "contactInfo",         label: "Contact Information",    critical: true  },
-  { key: "buyingGoal",          label: "Buying Goal",            critical: true  },
-  { key: "location",            label: "Target Location",        critical: false },
-  { key: "budget",              label: "Target Budget",          critical: false },
-  { key: "mortgageStatus",      label: "Financing Status",       critical: false },
-  { key: "downPayment",         label: "Down Payment",           critical: false },
-  { key: "timeline",            label: "Timeline",               critical: false },
+const ROADMAP_TITLES: Record<Language, string[]> = {
+  en: ["Name", "Contact", "Buying Goal", "Location", "Budget", "Financing", "Down Payment", "Timeline", "Current Home", "Must-Haves", "Obstacles"],
+  es: ["Nombre", "Contacto", "Meta", "Ubicación", "Presupuesto", "Financiamiento", "Pago Inicial", "Plazo", "Vivienda", "Requisitos", "Obstáculos"]
+};
+
+const ALL_FIELDS = [
+  { key: "fullName",             label: "Full Name",             critical: true  },
+  { key: "contactInfo",          label: "Contact Information",    critical: true  },
+  { key: "buyingGoal",           label: "Buying Goal",            critical: true  },
+  { key: "location",             label: "Target Location",        critical: false },
+  { key: "budget",               label: "Target Budget",          critical: false },
+  { key: "mortgageStatus",       label: "Financing Status",       critical: false },
+  { key: "downPayment",          label: "Down Payment",           critical: false },
+  { key: "timeline",             label: "Timeline",               critical: false },
   { key: "currentHomeSituation", label: "Current Home Situation", critical: false },
-  { key: "mustHaves",           label: "Must-Haves",             critical: false },
-  { key: "obstacles",           label: "Obstacles & Concerns",   critical: false },
+  { key: "mustHaves",            label: "Must-Haves",             critical: false },
+  { key: "obstacles",            label: "Obstacles & Concerns",   critical: false },
 ];
 
-// ── Defensive boolean coercion ───────────────────────────────────────────────
-// Mirrors the same helper in api/evaluate.ts. The backend guarantees real
-// booleans via EVALUATE_RESPONSE_SCHEMA, but this stays as a second line
-// of defense against transport quirks or a future API change.
 function toBool(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.trim().toLowerCase() === "true";
   return Boolean(value);
 }
 
-// ── Client-side preflight validation ─────────────────────────────────────────
-// Deliberately light-touch: only Name and Contact get a hard local check
-// (they have an unambiguous shape). Every other phase's "did they actually
-// answer" judgment is left to /api/evaluate, which has the real phase
-// rule and pushback script — a client-side regex can't tell "I'm just
-// looking" (a valid Phase 3 answer) from a true non-answer.
 function validateInputPreflight(phase: number, text: string): string | null {
   const t = text.trim();
   if (t.length === 0) return "A response is required before continuing.";
   if (t.length > 4000) return "Your response exceeds the character limit. Please summarize.";
 
-  if (phase === 1) {
-    if (t.length < 2) {
-      return "Please share at least your first name so we know what to call you.";
-    }
+  if (phase === 1 && t.length < 2) {
+    return "Please share at least your first name so we know what to call you.";
   }
 
   if (phase === 2) {
@@ -181,7 +214,6 @@ function validateInputPreflight(phase: number, text: string): string | null {
   return null;
 }
 
-// ── Fallback data builders (used only if /api/generate-report is unreachable) ─
 function buildStructuredDataFallback(answers: Record<string, string>): StructuredData {
   return {
     fullName:             answers.fullName             || "",
@@ -219,43 +251,34 @@ function buildFallbackBuyerSummary(answers: Record<string, string>): string {
     "NOTE: Automated scoring failed. Raw intake data is preserved below for",
     "manual agent review before any matching or outreach.",
     "",
-    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "SECTION 1: BUYER IDENTIFICATION",
-    `  Full Name:    ${answers.fullName             || "Not provided"}`,
-    `  Contact:      ${answers.contactInfo          || "Not provided"}`,
+    `   Full Name:    ${answers.fullName             || "Not provided"}`,
+    `   Contact:      ${answers.contactInfo          || "Not provided"}`,
     "",
     "SECTION 2: PURCHASE GOALS",
-    `  Goal:         ${answers.buyingGoal           || "Not provided"}`,
-    `  Location:     ${answers.location             || "Not provided"}`,
-    `  Must-Haves:   ${answers.mustHaves            || "Not provided"}`,
+    `   Goal:         ${answers.buyingGoal           || "Not provided"}`,
+    `   Location:     ${answers.location             || "Not provided"}`,
+    `   Must-Haves:   ${answers.mustHaves            || "Not provided"}`,
     "",
     "SECTION 3: FINANCIAL READINESS",
-    `  Budget:       ${answers.budget               || "Not provided"}`,
-    `  Financing:    ${answers.mortgageStatus       || "Not provided"}`,
-    `  Down Payment: ${answers.downPayment          || "Not provided"}`,
+    `   Budget:       ${answers.budget               || "Not provided"}`,
+    `   Financing:    ${answers.mortgageStatus       || "Not provided"}`,
+    `   Down Payment: ${answers.downPayment          || "Not provided"}`,
     "",
     "SECTION 4: TIMELINE, HOUSING & OBSTACLES",
-    `  Timeline:     ${answers.timeline             || "Not provided"}`,
-    `  Current Home: ${answers.currentHomeSituation || "Not provided"}`,
-    `  Obstacles:    ${answers.obstacles            || "Not provided"}`,
-    "",
-    "SECTION 5: AGENT RECOMMENDATION",
-    "  Recommended Next Step: Follow Up in 90 Days (pending manual review)",
-    "  Agent must manually evaluate this profile before making any representation decisions.",
+    `   Timeline:     ${answers.timeline             || "Not provided"}`,
+    `   Current Home: ${answers.currentHomeSituation || "Not provided"}`,
+    `   Obstacles:    ${answers.obstacles            || "Not provided"}`,
   ].join("\n");
 }
 
-// ── Helper: Fetch with Automatic 503 Retry ────────────────────────────────────
 async function fetchWithEvaluateRetry(url: string, options: RequestInit, retries = 1, delay = 2000): Promise<Response> {
   try {
     const response = await fetch(url, options);
-
     if (response.status === 503 && retries > 0) {
-      console.warn(`[App] Received 503 from API. Auto-retrying in ${delay / 1000}s...`);
       await new Promise((resolve) => setTimeout(resolve, delay));
       return fetchWithEvaluateRetry(url, options, retries - 1, delay);
     }
-
     return response;
   } catch (error) {
     if (retries > 0) {
@@ -266,40 +289,29 @@ async function fetchWithEvaluateRetry(url: string, options: RequestInit, retries
   }
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
-
 export default function App() {
+  const [language, setLanguage] = useState<Language>("en");
+  const questionsList = INTAKE_QUESTIONS[language];
+
   const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "init",
-      role: "model",
-      text: INTAKE_QUESTIONS[0].question,
-    },
+    { id: "init", role: "model", text: INTAKE_QUESTIONS.en[0].question },
   ]);
-  const [isLoading,    setIsLoading]   = useState(false);
-  const [isFinished,   setIsFinished]  = useState(false);
-  const [currentPhase, setCurrentPhase] = useState(1);
-  const [answers,      setAnswers]     = useState<Record<string, string>>({});
-  const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
-  const [finalScore,   setFinalScore]  = useState<StructuredData | null>(null);
-  // Tracks consecutive *local* preflight rejections for the current phase.
-  // If the client-side regex/length checks reject the same phase 2+ times
-  // in a row, we stop trusting them and send straight to the AI instead —
-  // this is the "never permanently trapped" escape hatch. Resets to 0
-  // whenever the phase advances.
+  const [isLoading,       setIsLoading]   = useState(false);
+  const [isFinished,      setIsFinished]  = useState(false);
+  const [currentPhase,    setCurrentPhase] = useState(1);
+  const [answers,         setAnswers]     = useState<Record<string, string>>({});
+  const [submitStatus,    setSubmitStatus] = useState<SubmitStatus>("idle");
+  const [finalScore,      setFinalScore]  = useState<StructuredData | null>(null);
   const [preflightFailCount, setPreflightFailCount] = useState(0);
   const PREFLIGHT_BYPASS_THRESHOLD = 2;
-  // The exact text of the last question the client actually saw — the
-  // base phase question initially, but after that it may be a pushback
-  // script's question, a dynamic follow-up question, or a consistency
-  // confirmation, none of which match INTAKE_QUESTIONS[currentPhase-1].
-  // This is what gets sent to /api/evaluate as "question" so the backend
-  // grades the answer against what was REALLY asked — sending the static
-  // phase text unconditionally was the root cause of RRU accepting
-  // off-topic answers (e.g. a location) as if they'd answered a
-  // follow-up about investment strategy, since the static phase-level
-  // question reads as generically "real estate related" either way.
-  const [lastAssistantMessage, setLastAssistantMessage] = useState(INTAKE_QUESTIONS[0].question);
+  const [lastAssistantMessage, setLastAssistantMessage] = useState(INTAKE_QUESTIONS.en[0].question);
+
+  const handleLanguageChange = (newLang: Language) => {
+    if (currentPhase > 1 || isFinished) return;
+    setLanguage(newLang);
+    setMessages([{ id: "init", role: "model", text: INTAKE_QUESTIONS[newLang][0].question }]);
+    setLastAssistantMessage(INTAKE_QUESTIONS[newLang][0].question);
+  };
 
   const addMessage = (role: Message["role"], text: string) => {
     setMessages((prev) => [
@@ -309,9 +321,9 @@ export default function App() {
   };
 
   const handleSendMessage = async (text: string) => {
-    if (!text.trim() || isLoading || isFinished || currentPhase > INTAKE_QUESTIONS.length) return;
+    if (!text.trim() || isLoading || isFinished || currentPhase > questionsList.length) return;
 
-    const currentQuestion = INTAKE_QUESTIONS[currentPhase - 1];
+    const currentQuestion = questionsList[currentPhase - 1];
     addMessage("user", text);
 
     const preflightError = validateInputPreflight(currentPhase, text);
@@ -319,13 +331,6 @@ export default function App() {
       setPreflightFailCount((n) => n + 1);
       addMessage("model", preflightError);
       return;
-    }
-    if (preflightError) {
-      // Bypass: local validation rejected this phase twice in a row.
-      // Stop trusting the lightweight client-side check and let
-      // /api/evaluate decide — it has the full phase rule and pushback
-      // script, so it can recognize answers the regex can't.
-      console.warn(`[App] Preflight bypassed for phase ${currentPhase} after ${preflightFailCount} local rejections.`);
     }
 
     setIsLoading(true);
@@ -335,10 +340,11 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phase:       currentPhase,
-          question:    lastAssistantMessage,
-          answer:      text.trim(),
-          allAnswers:  answers,
+          phase:      currentPhase,
+          question:   lastAssistantMessage,
+          answer:     text.trim(),
+          allAnswers: answers,
+          language:   language,
         }),
       });
 
@@ -347,19 +353,13 @@ export default function App() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      addMessage(
-        "model",
-        data.agentResponse || "Your response doesn't quite meet what's needed for this step — could you share a bit more?"
-      );
+      addMessage("model", data.agentResponse || (language === "es" ? "¿Podría compartir un poco más?" : "Could you share a bit more?"));
 
       const isValid = toBool(data.isValid);
       const hasExtractedData = typeof data.extractedData === "string" && data.extractedData.trim().length > 0;
       const inconsistencyDetected = toBool(data.inconsistencyDetected);
       const followUpTriggered = toBool(data.followUpTriggered);
 
-      // Mirrors the server-side computation in api/evaluate.ts: advance if
-      // the server explicitly says so, OR if the answer was valid with
-      // real extracted data and neither hold-back flag is set.
       const shouldAdvance =
         toBool(data.advancePhase) ||
         (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
@@ -375,56 +375,35 @@ export default function App() {
         setPreflightFailCount(0);
         const nextPhase = currentPhase + 1;
 
-        if (nextPhase <= INTAKE_QUESTIONS.length) {
+        if (nextPhase <= questionsList.length) {
           setCurrentPhase(nextPhase);
-          // Ask the next question ourselves rather than hoping the
-          // model's agentResponse included it — per the AGENTRESPONSE
-          // CONTRACT in lib/constants.ts, agentResponse on an advancing
-          // turn should be acknowledgment-only now. But models don't
-          // always follow instructions perfectly, so guard against the
-          // model asking a question anyway: if its agentResponse already
-          // ends in "?", trust that it asked *something* and skip our
-          // injection — this is exactly what caused the duplicate-
-          // question problem the app previously "fixed" by removing the
-          // injection entirely (which just traded one bug for the
-          // silent-stall bug in the screenshot). Gating on this instead
-          // of removing the injection gives both: no duplicates AND no
-          // silent stalls.
           const agentAlreadyAskedSomething = /\?\s*$/.test(String(data.agentResponse || "").trim());
           if (!agentAlreadyAskedSomething) {
-            const nextQuestion = INTAKE_QUESTIONS[nextPhase - 1];
+            const nextQuestion = questionsList[nextPhase - 1];
             setLastAssistantMessage(nextQuestion.question);
             setTimeout(() => {
               addMessage("model", nextQuestion.question);
             }, 450);
           } else {
-            // The model's acknowledgment doubled as its own question —
-            // that's now the thing the client is actually replying to.
             setLastAssistantMessage(String(data.agentResponse));
           }
         } else {
-          setCurrentPhase(INTAKE_QUESTIONS.length + 1);
+          setCurrentPhase(questionsList.length + 1);
           setTimeout(() => {
             addMessage(
               "system",
-              "All done! Please review your answers above. When you're ready, click **Submit Profile** to send your information to our real estate team."
+              language === "es"
+                ? "¡Todo listo! Por favor revise sus respuestas abajo. Cuando esté listo, haga clic en **Enviar perfil**."
+                : "All done! Please review your answers below. When you're ready, click **Submit Profile**."
             );
           }, 450);
         }
       } else {
-        // Holding the phase (pushback, follow-up, inconsistency, or a
-        // non-responsive answer caught by the new RELEVANCE CHECK). Per
-        // the AGENTRESPONSE CONTRACT in lib/constants.ts, agentResponse
-        // on a HOLD turn must itself contain the actual question the
-        // client needs to answer — so that's what "last question asked"
-        // means now, not the static phase text.
-        setLastAssistantMessage(
-          String(data.agentResponse || currentQuestion.question)
-        );
+        setLastAssistantMessage(String(data.agentResponse || currentQuestion.question));
       }
     } catch (err) {
       console.error("[App] Evaluation error:", err);
-      addMessage("model", "A system error occurred while evaluating your response. Please try again.");
+      addMessage("model", language === "es" ? "Ocurrió un error al evaluar su respuesta. Intente de nuevo." : "A system error occurred. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -444,10 +423,7 @@ export default function App() {
       .map((f) => f.label);
 
     if (criticalMissing.length > 0) {
-      addMessage(
-        "system",
-        `⚠️ Submission blocked: required fields are empty — ${criticalMissing.join(", ")}.`
-      );
+      addMessage("system", `⚠️ Required fields empty: ${criticalMissing.join(", ")}.`);
       return;
     }
 
@@ -471,7 +447,7 @@ export default function App() {
         structuredData = { ...generated.structuredData, submittedAt: new Date().toISOString() };
         buyerSummary   = generated.buyerSummary;
         setFinalScore(structuredData);
-      } catch (reportErr) {
+      } catch {
         structuredData = buildStructuredDataFallback(answers);
         buyerSummary   = buildFallbackBuyerSummary(answers);
         setFinalScore(structuredData);
@@ -488,44 +464,25 @@ export default function App() {
       if (intakeRes.ok && intakeData.success) {
         setIsFinished(true);
         setSubmitStatus("success");
-        addMessage(
-          "system",
-          "✅ Your buyer profile has been successfully submitted! A real estate specialist will review your criteria and reach out shortly."
-        );
+        addMessage("system", language === "es" ? "✅ ¡Perfil de comprador enviado con éxito!" : "✅ Your buyer profile has been successfully submitted!");
       } else {
         setSubmitStatus("error");
-        addMessage("system", "❌ Submission failed. Please try again.");
+        addMessage("system", language === "es" ? "❌ Error al enviar. Intente de nuevo." : "❌ Submission failed. Please try again.");
       }
-    } catch (err: unknown) {
+    } catch {
       setSubmitStatus("error");
-      addMessage("system", "❌ A network error occurred. Please try again.");
+      addMessage("system", language === "es" ? "❌ Ocurrió un error de red." : "❌ A network error occurred.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const roadmapSteps = [
-    { title: "Name",           phase: 1 },
-    { title: "Contact",        phase: 2 },
-    { title: "Buying Goal",    phase: 3 },
-    { title: "Location",       phase: 4 },
-    { title: "Budget",         phase: 5 },
-    { title: "Financing",      phase: 6 },
-    { title: "Down Payment",   phase: 7 },
-    { title: "Timeline",       phase: 8 },
-    { title: "Current Home",   phase: 9 },
-    { title: "Must-Haves",     phase: 10 },
-    { title: "Obstacles",      phase: 11 },
-  ];
-
+  const roadmapTitles = ROADMAP_TITLES[language];
   const progressPct =
-    isFinished || currentPhase > INTAKE_QUESTIONS.length
+    isFinished || currentPhase > questionsList.length
       ? 100
-      : Math.round(((currentPhase - 1) / INTAKE_QUESTIONS.length) * 100);
+      : Math.round(((currentPhase - 1) / questionsList.length) * 100);
 
-  // Colored by Agent Priority (A+/A/B/C/D), matching the source spec's
-  // "who should be called first tomorrow morning" scale — not the old
-  // HOT/WARM/COLD/NURTURE legal-intake labels.
   const agentPriorityColors: Record<string, string> = {
     "A+": "text-emerald-400",
     "A":  "text-emerald-400",
@@ -536,37 +493,78 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-900 overflow-hidden flex-col md:flex-row">
-
-      {/* Sidebar */}
-      <aside className="hidden md:flex w-72 bg-slate-900 text-slate-300 flex-col border-r border-slate-800 shrink-0">
-        <div className="p-6 border-b border-slate-800">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
-            <h1 className="font-bold text-white tracking-tight uppercase text-sm">
-              RRU™ Matchmaker
-            </h1>
+      
+      {/* MOBILE HEADER BAR WITH LANGUAGE TOGGLE */}
+      <div className="md:hidden bg-slate-900 text-white px-4 py-3 flex items-center justify-between border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+          <span className="font-bold tracking-tight uppercase text-xs">
+            RRU™ Matchmaker
+          </span>
+        </div>
+        {currentPhase === 1 && !isFinished && (
+          <div className="flex gap-1 bg-slate-800 p-1 rounded">
+            <button
+              onClick={() => handleLanguageChange("en")}
+              className={`px-2.5 py-1 text-[11px] font-mono rounded ${language === "en" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"}`}
+            >
+              EN
+            </button>
+            <button
+              onClick={() => handleLanguageChange("es")}
+              className={`px-2.5 py-1 text-[11px] font-mono rounded ${language === "es" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"}`}
+            >
+              ES
+            </button>
           </div>
-          <p className="text-[10px] text-slate-600 font-mono uppercase tracking-widest">
-            Buyer Qualification v1.0
-          </p>
+        )}
+      </div>
+
+      {/* DESKTOP SIDEBAR */}
+      <aside className="hidden md:flex w-72 bg-slate-900 text-slate-300 flex-col border-r border-slate-800 shrink-0">
+        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+              <h1 className="font-bold text-white tracking-tight uppercase text-sm">
+                RRU™ Matchmaker
+              </h1>
+            </div>
+            <p className="text-[10px] text-slate-600 font-mono uppercase tracking-widest">
+              {language === "es" ? "Bilingüe / Gold" : "Buyer Qualification v1.0"}
+            </p>
+          </div>
+          {currentPhase === 1 && !isFinished && (
+            <div className="flex gap-1 bg-slate-800 p-1 rounded">
+              <button
+                onClick={() => handleLanguageChange("en")}
+                className={`px-2 py-0.5 text-[10px] font-mono rounded ${language === "en" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"}`}
+              >
+                EN
+              </button>
+              <button
+                onClick={() => handleLanguageChange("es")}
+                className={`px-2 py-0.5 text-[10px] font-mono rounded ${language === "es" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"}`}
+              >
+                ES
+              </button>
+            </div>
+          )}
         </div>
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-0.5">
           <div className="text-[10px] font-bold text-slate-600 uppercase px-2 py-2 tracking-widest">
-            11-Phase Protocol
+            {language === "es" ? "Protocolo de 11 Fases" : "11-Phase Protocol"}
           </div>
-          {roadmapSteps.map((step) => {
-            const isActive    = currentPhase === step.phase;
-            const isCompleted = currentPhase > step.phase || isFinished;
+          {roadmapTitles.map((title, idx) => {
+            const stepNum = idx + 1;
+            const isActive = currentPhase === stepNum;
+            const isCompleted = currentPhase > stepNum || isFinished;
             return (
               <div
-                key={step.phase}
+                key={stepNum}
                 className={`flex items-center gap-3 px-3 py-2 text-xs transition-colors rounded ${
-                  isActive
-                    ? "bg-slate-800 text-white"
-                    : isCompleted
-                    ? "text-slate-400"
-                    : "text-slate-600 opacity-40"
+                  isActive ? "bg-slate-800 text-white" : isCompleted ? "text-slate-400" : "text-slate-600 opacity-40"
                 }`}
               >
                 <span
@@ -578,9 +576,9 @@ export default function App() {
                       : "border border-slate-700 text-slate-600"
                   }`}
                 >
-                  {isCompleted && !isActive ? "✓" : step.phase.toString().padStart(2, "0")}
+                  {isCompleted && !isActive ? "✓" : stepNum.toString().padStart(2, "0")}
                 </span>
-                <span className="font-mono">{step.title}</span>
+                <span className="font-mono">{title}</span>
               </div>
             );
           })}
@@ -600,14 +598,6 @@ export default function App() {
             <div className={`text-xs font-bold uppercase tracking-widest mb-1 ${agentPriorityColors[finalScore.agentPriority || "D"]}`}>
               {finalScore.agentPriority || "—"} Priority
             </div>
-            <div className="text-[11px] text-slate-500 mb-3">
-              {finalScore.readinessBand || "Pending review"}
-            </div>
-            {finalScore.recommendedNextStep && (
-              <div className="text-[10px] text-slate-500 border-t border-slate-800 pt-2">
-                Next: <span className="text-slate-300">{finalScore.recommendedNextStep}</span>
-              </div>
-            )}
           </div>
         )}
 
@@ -618,13 +608,7 @@ export default function App() {
               <span className="text-[10px] font-mono text-slate-400">{progressPct}%</span>
             </div>
             <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
-              <div
-                className="bg-indigo-600 h-full transition-all duration-500"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <div className="mt-4 text-[10px] text-slate-700 leading-relaxed font-mono">
-              All responses are confidential. Your profile will be reviewed by a licensed real estate agent.
+              <div className="bg-indigo-600 h-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
             </div>
           </div>
         )}
@@ -640,8 +624,8 @@ export default function App() {
           submitStatus={submitStatus}
           answers={answers}
           onEditAnswer={handleEditAnswer}
-          showReview={currentPhase > INTAKE_QUESTIONS.length}
-          intakeQuestions={INTAKE_QUESTIONS}
+          showReview={currentPhase > questionsList.length}
+          intakeQuestions={questionsList}
           allFields={ALL_FIELDS}
         />
       </main>
